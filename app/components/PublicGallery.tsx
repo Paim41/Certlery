@@ -17,6 +17,7 @@ import {
   Search,
   Share2,
   ShieldCheck,
+  X,
 } from "lucide-react";
 import { demoCertificates } from "../lib/demo-certificates";
 import { Brand } from "./Brand";
@@ -27,6 +28,7 @@ export function PublicGallery() {
   const [category, setCategory] = useState("All");
   const [layout, setLayout] = useState<"grid" | "list">("grid");
   const [copied, setCopied] = useState(false);
+  const [preview, setPreview] = useState<(typeof demoCertificates)[number] | null>(null);
   const publicCertificates = demoCertificates.filter((certificate) => certificate.visibility === "public");
   const categories = ["All", ...Array.from(new Set(publicCertificates.map((certificate) => certificate.category)))];
   const visible = useMemo(
@@ -53,7 +55,7 @@ export function PublicGallery() {
       <header className="public-nav">
         <div className="shell">
           <Link href="/" className="brand-link"><Brand compact /></Link>
-          <div><Link href="/demo"><ArrowLeft size={16} /> Dashboard demo</Link><button className="button button-secondary button-small" onClick={copyProfile}>{copied ? <CheckCircle2 size={16} /> : <Share2 size={16} />}{copied ? "Link copied" : "Share profile"}</button></div>
+          <div><Link href="/"><ArrowLeft size={16} /> Back to Certlery</Link><button className="button button-secondary button-small" onClick={copyProfile} data-ripple>{copied ? <CheckCircle2 size={16} /> : <Share2 size={16} />}{copied ? "Link copied" : "Share profile"}</button></div>
         </div>
       </header>
 
@@ -85,10 +87,11 @@ export function PublicGallery() {
             <p>Selected professional and academic milestones across product design, frontend development, and applied technology.</p>
           </div>
           <div className="public-featured-grid">
-            {publicCertificates.filter((certificate) => certificate.featured).map((certificate) => (
-              <article key={certificate.id}>
+            {publicCertificates.filter((certificate) => certificate.featured).map((certificate, index) => (
+              <article key={certificate.id} data-tilt data-reveal style={{ "--stagger": index } as React.CSSProperties}>
+                <span className="card-shine" aria-hidden="true" />
                 <CertificateArtwork certificate={certificate} />
-                <div><span>{certificate.category}</span><h3>{certificate.title}</h3><p>{certificate.issuer}</p><div><span><ShieldCheck size={14} /> {certificate.verification === "verified" ? "Link confirmed" : "Verification available"}</span><button>View credential <ExternalLink size={14} /></button></div></div>
+                <div><span>{certificate.category}</span><h3>{certificate.title}</h3><p>{certificate.issuer}</p><div><span><ShieldCheck size={14} /> {certificate.verification === "verified" ? "Link confirmed" : "Verification available"}</span><button onClick={() => setPreview(certificate)}>Quick preview <ExternalLink size={14} /></button></div></div>
               </article>
             ))}
           </div>
@@ -101,10 +104,11 @@ export function PublicGallery() {
             <div>{categories.map((item) => <button key={item} className={category === item ? "active" : ""} onClick={() => setCategory(item)}>{item}</button>)}</div>
           </div>
           <div className={`public-certificate-grid ${layout === "list" ? "is-list" : ""}`}>
-            {visible.map((certificate) => (
-              <article key={certificate.id}>
+            {visible.map((certificate, index) => (
+              <article key={certificate.id} data-tilt data-reveal style={{ "--stagger": index } as React.CSSProperties}>
+                <span className="card-shine" aria-hidden="true" />
                 <CertificateArtwork certificate={certificate} compact={layout === "list"} />
-                <div><span className="public-card-category">{certificate.category}</span><h3>{certificate.title}</h3><p>{certificate.issuer}</p><div className="skill-list">{certificate.skills.slice(0, 3).map((skill) => <span key={skill}>{skill}</span>)}</div><div className="public-card-foot"><span><ShieldCheck size={14} /> {certificate.verification === "verified" ? "Link confirmed" : "Verification link"}</span><button aria-label={`Open ${certificate.title}`}><ExternalLink size={15} /></button></div></div>
+                <div><span className="public-card-category">{certificate.category}</span><h3>{certificate.title}</h3><p>{certificate.issuer}</p><div className="skill-list">{certificate.skills.slice(0, 3).map((skill) => <span key={skill}>{skill}</span>)}</div><div className="public-card-foot"><span><ShieldCheck size={14} /> {certificate.verification === "verified" ? "Link confirmed" : "Verification link"}</span><button onClick={() => setPreview(certificate)} aria-label={`Preview ${certificate.title}`}><ExternalLink size={15} /></button></div></div>
               </article>
             ))}
           </div>
@@ -113,11 +117,31 @@ export function PublicGallery() {
         <section className="public-contact">
           <span><BriefcaseBusiness size={22} /></span>
           <div><h2>Interested in working together?</h2><p>See how these credentials connect to Maya’s product and interface work.</p></div>
-          <button className="button button-primary"><Mail size={16} /> Get in touch</button>
+          <Link href="/#contact" className="button button-primary" data-ripple><Mail size={16} /> Get in touch</Link>
         </section>
       </section>
 
-      <footer className="public-footer"><div className="shell"><span>Built with <Brand compact /></span><p>Credential verification links are supplied by the profile owner.</p><span><Globe2 size={14} /> Public profile</span></div></footer>
+      <footer className="public-footer"><div className="shell"><span>Built with <Brand compact /></span><p>Credential verification links are supplied by the profile owner.</p><a href="https://github.com/Paim41" target="_blank" rel="noreferrer"><Globe2 size={14} /> Paim41 on GitHub</a></div></footer>
+      {preview && (
+        <div className="quick-preview-backdrop" role="presentation" onClick={() => setPreview(null)}>
+          <section className="quick-preview" role="dialog" aria-modal="true" aria-labelledby="quick-preview-title" onClick={(event) => event.stopPropagation()}>
+            <button className="icon-button quick-preview-close" onClick={() => setPreview(null)} aria-label="Close preview"><X size={19} /></button>
+            <div className="quick-preview-art"><CertificateArtwork certificate={preview} /></div>
+            <div className="quick-preview-copy">
+              <span className="eyebrow">{preview.category}</span>
+              <h2 id="quick-preview-title">{preview.title}</h2>
+              <p>{preview.issuer}</p>
+              <div className="skill-list">{preview.skills.map((skill) => <span key={skill}>{skill}</span>)}</div>
+              <dl>
+                <div><dt>Issued</dt><dd>{new Date(preview.issueDate).toLocaleDateString("en", { month: "long", year: "numeric" })}</dd></div>
+                <div><dt>Visibility</dt><dd>{preview.visibility}</dd></div>
+                <div><dt>Status</dt><dd>{preview.verification === "verified" ? "Link confirmed" : "Verification link"}</dd></div>
+              </dl>
+              <button className="button button-primary" onClick={() => setPreview(null)} data-ripple>Close preview</button>
+            </div>
+          </section>
+        </div>
+      )}
     </main>
   );
 }

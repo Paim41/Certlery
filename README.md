@@ -1,7 +1,8 @@
 # Certlery
 
-Certlery is a responsive certificate-management workspace and public credential
-portfolio built with Next.js, TypeScript, Tailwind CSS, Supabase, and Lucide.
+Certlery is a responsive certificate portfolio built with Next.js and TypeScript.
+It includes an animated public gallery, env-backed admin authentication, and a
+Telegram Bot API integration for live messages, sign-in alerts, and webhook commands.
 
 ## Run locally
 
@@ -16,22 +17,39 @@ copy .env.example .env.local
 npm run dev
 ```
 
-The landing page, public profile, and interactive dashboard demo work without a
-Supabase project. Real accounts, persistent certificate metadata, and private
-file uploads activate when the Supabase environment values are configured.
+The landing page and public gallery work without external services. Admin access
+requires the three `ADMIN_*` variables below. Telegram contact and bot controls
+activate after the three `TELEGRAM_*` variables are configured.
 
-## Supabase setup
+## Admin authentication
 
-1. Create a Supabase project.
-2. Run `supabase/migrations/0001_certlery.sql` in the Supabase SQL editor.
-3. Copy `.env.example` to `.env.local`.
-4. Add the Project URL and Publishable Key from the Supabase Connect dialog.
-5. Add the deployed `/auth/callback` URL to the Supabase Auth redirect allowlist.
-6. Enable Google in Supabase Auth if Google sign-in is required.
+Admin sessions are signed on the server and stored in an HTTP-only, SameSite cookie.
+No username, password, or signing secret is sent to the browser bundle.
 
-The migration creates the certificate tables, private storage bucket, indexes,
-and row-level security policies. Each authenticated user can only modify their
-own records and files.
+- `ADMIN_USERNAME`
+- `ADMIN_PASSWORD` — use at least 12 characters
+- `ADMIN_SESSION_SECRET` — use at least 32 random characters
+
+The admin workspace is available at `/admin/login`. The retired `/demo`, `/signin`,
+and `/dashboard` URLs now redirect into this protected flow.
+
+## Telegram Bot API
+
+Create a bot with BotFather, then configure:
+
+- `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_CHAT_ID`
+- `TELEGRAM_WEBHOOK_SECRET`
+
+Available endpoints:
+
+- `GET /api/telegram` — safe connection status
+- `POST /api/telegram` — validated website contact messages
+- `POST /api/telegram/webhook` — secret-verified Telegram webhook
+- `GET|POST /api/admin/telegram` — protected status, test, and webhook setup
+
+After signing in, use **Connect webhook** in the admin toolbar. Supported bot
+commands are `/status`, `/site`, and `/help`.
 
 ## Deploy to Vercel
 
@@ -41,14 +59,15 @@ Import the GitHub repository into Vercel or run:
 npx vercel --prod
 ```
 
-For the full authenticated application, set these environment variables in the
-Vercel project:
+Set the environment variables above for the Production environment, then create a
+new production deployment. `NEXT_PUBLIC_SITE_URL=https://certlery.vercel.app` is
+recommended for canonical site behavior.
+
+Optional Supabase variables can still be used by the existing certificate storage
+routes:
 
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
-- `NEXT_PUBLIC_SITE_URL`
-
-The project uses the standard Next.js build output expected by Vercel.
 
 ## Useful commands
 

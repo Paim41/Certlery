@@ -1,11 +1,5 @@
-import type { Metadata } from "next";
-import { DashboardClient } from "../components/DashboardClient";
+import { redirect } from "next/navigation";
 
-export const metadata: Metadata = {
-  title: "Interactive dashboard demo",
-  description: "Explore the Certlery certificate management workspace.",
-};
-
-export default function DemoPage() {
-  return <DashboardClient demo />;
+export default function RemovedDemoPage() {
+  redirect("/admin/login");
 }

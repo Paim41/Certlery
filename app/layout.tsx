@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { Cormorant_Garamond, Geist } from "next/font/google";
+import { SiteEffects } from "./components/SiteEffects";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -56,6 +57,7 @@ export default function RootLayout({
         className={`${geistSans.variable} ${cormorant.variable} antialiased`}
       >
         {children}
+        <SiteEffects />
       </body>
     </html>
   );

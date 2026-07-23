@@ -95,13 +95,13 @@ const navigation: { id: WorkspacePage; label: string; icon: typeof LayoutDashboa
 
 export function DashboardClient({
   userName = "Maya Chen",
-  demo = false,
+  localMode = false,
 }: {
   userName?: string;
-  demo?: boolean;
+  localMode?: boolean;
 }) {
   const [page, setPage] = useState<WorkspacePage>("overview");
-  const [certificates, setCertificates] = useState<CertificateRecord[]>(demo ? demoCertificates : []);
+  const [certificates, setCertificates] = useState<CertificateRecord[]>(localMode ? demoCertificates : []);
   const [query, setQuery] = useState("");
   const [view, setView] = useState<"grid" | "compact" | "list">("grid");
   const [filter, setFilter] = useState("all");
@@ -113,7 +113,7 @@ export function DashboardClient({
   const [selected, setSelected] = useState<string[]>([]);
 
   useEffect(() => {
-    if (demo) return;
+    if (localMode) return;
     let active = true;
     fetch("/api/certificates")
       .then(async (response) => {
@@ -154,7 +154,7 @@ export function DashboardClient({
     return () => {
       active = false;
     };
-  }, [demo]);
+  }, [localMode]);
 
   const filtered = useMemo(() => {
     const term = query.trim().toLowerCase();
@@ -218,7 +218,7 @@ export function DashboardClient({
         </div>
         <div className="sidebar-profile">
           <span className="avatar">MC</span>
-          <span><strong>{userName}</strong><small>{demo ? "Demo workspace" : "Personal gallery"}</small></span>
+          <span><strong>{userName}</strong><small>{localMode ? "Live admin workspace" : "Personal gallery"}</small></span>
           <MoreHorizontal size={18} />
         </div>
       </aside>
@@ -289,7 +289,7 @@ export function DashboardClient({
 
       {uploadOpen && (
         <UploadDialog
-          demo={demo}
+          localMode={localMode}
           onClose={() => setUploadOpen(false)}
           onSaved={(certificate) => {
             setCertificates((current) => [certificate, ...current]);
@@ -545,7 +545,7 @@ function SettingsPanel({ dark, setDark, onNotify }: { dark: boolean; setDark(val
   );
 }
 
-function UploadDialog({ demo, onClose, onSaved }: { demo: boolean; onClose(): void; onSaved(certificate: CertificateRecord): void }) {
+function UploadDialog({ localMode, onClose, onSaved }: { localMode: boolean; onClose(): void; onSaved(certificate: CertificateRecord): void }) {
   const [file, setFile] = useState<File | null>(null);
   const [step, setStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
@@ -576,7 +576,7 @@ function UploadDialog({ demo, onClose, onSaved }: { demo: boolean; onClose(): vo
       tone: "gold",
     };
     try {
-      if (!demo) {
+      if (!localMode) {
         const form = new FormData();
         form.append("metadata", JSON.stringify(data));
         if (file) form.append("file", file);
