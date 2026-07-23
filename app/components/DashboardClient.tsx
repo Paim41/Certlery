@@ -347,9 +347,6 @@ export function DashboardClient({
           {profileMenuOpen && (
             <div className="sidebar-profile-menu" role="menu">
               <button role="menuitem" onClick={() => { setProfileEditorOpen(true); setProfileMenuOpen(false); }}><Camera size={15} /> Edit admin profile</button>
-              <button role="menuitem" onClick={() => { navigate("public"); setProfileMenuOpen(false); }}><Globe2 size={15} /> Public gallery</button>
-              <button role="menuitem" onClick={() => { navigate("storage"); setProfileMenuOpen(false); }}><FileArchive size={15} /> Manage storage</button>
-              <button role="menuitem" onClick={() => { navigate("settings"); setProfileMenuOpen(false); }}><Settings size={15} /> Settings</button>
               <button role="menuitem" className="danger" onClick={() => void signOut()}><LogOut size={15} /> Sign out</button>
             </div>
           )}
