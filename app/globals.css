@@ -1,5 +1,11 @@
 @import "tailwindcss";
 
+@property --progress {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
 :root {
   --bg: #f8f6f0;
   --bg-secondary: #f1ede3;
@@ -4388,62 +4394,67 @@ body {
 
 .statistics-section {
   position: relative;
-  color: var(--ink);
-  background: #f1ede3;
-  border-block: 1px solid var(--border);
+  color: #f9f5ea;
+  background:
+    radial-gradient(circle at 20% 20%, rgba(184, 137, 45, 0.2), transparent 28%),
+    radial-gradient(circle at 85% 75%, rgba(111, 143, 131, 0.18), transparent 28%),
+    #1c1a17;
   overflow: hidden;
 }
 
 .statistics-section .eyebrow {
-  color: var(--gold-dark);
+  color: var(--gold-light);
 }
 
 .statistics-section .section-heading h2 {
-  color: var(--ink);
+  color: #f9f5ea;
 }
 
 .statistics-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  border-block: 1px solid #cfc7b7;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 18px;
 }
 
-.stat-snapshot {
+.stat-orbit {
+  --progress: 0deg;
   display: grid;
-  grid-template-columns: 78px 1fr;
-  gap: 22px;
-  align-items: center;
-  min-height: 132px;
-  padding: 25px 30px;
+  place-items: center;
+  padding: 26px 18px;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(228, 200, 117, 0.16);
+  border-radius: 16px;
+  backdrop-filter: blur(10px);
 }
 
-.stat-snapshot:nth-child(odd) {
-  border-right: 1px solid #cfc7b7;
+.progress-ring {
+  width: 112px;
+  height: 112px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 20px;
+  background:
+    radial-gradient(circle, #1c1a17 61%, transparent 62%),
+    conic-gradient(var(--gold-light) var(--progress), rgba(255, 255, 255, 0.08) 0);
+  border-radius: 50%;
+  transition: --progress 1.2s ease;
 }
 
-.stat-snapshot:nth-child(-n + 2) {
-  border-bottom: 1px solid #cfc7b7;
+.progress-ring span {
+  font-family: var(--font-geist-sans), Inter, Arial, sans-serif;
+  font-size: 34px;
+  font-weight: 700;
 }
 
-.stat-snapshot-number {
-  color: var(--ink);
-  font-family: var(--font-geist-sans), Arial, sans-serif;
-  font-size: 39px;
-  font-weight: 620;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: -0.055em;
-  line-height: 1;
+.stat-orbit > strong {
+  font-size: 15px;
 }
 
-.stat-snapshot strong {
-  font-size: 14px;
-}
-
-.stat-snapshot p {
-  margin: 6px 0 0;
-  color: var(--text);
+.stat-orbit p {
+  margin: 7px 0 0;
+  color: #a9a195;
   font-size: 12px;
-  line-height: 1.5;
 }
 
 .feature-card {
@@ -5083,19 +5094,6 @@ body {
   .statistics-grid,
   .contact-form {
     grid-template-columns: 1fr;
-  }
-
-  .stat-snapshot {
-    grid-template-columns: 64px 1fr;
-    padding-inline: 8px;
-  }
-
-  .stat-snapshot:nth-child(odd) {
-    border-right: 0;
-  }
-
-  .stat-snapshot:nth-child(-n + 3) {
-    border-bottom: 1px solid #cfc7b7;
   }
 
   .contact-form {

@@ -53,10 +53,10 @@ const features = [
 ];
 
 const stats = [
-  { value: 8, suffix: "", label: "Sample credentials", copy: "Across academic and professional work" },
-  { value: 5, suffix: "", label: "Publicly visible", copy: "Ready to share in the portfolio" },
-  { value: 3, suffix: "", label: "Featured highlights", copy: "Selected for the first impression" },
-  { value: 2, suffix: "", label: "Renewal reminders", copy: "Dates that need attention soon" },
+  { value: 100, suffix: "%", label: "Responsive", copy: "Designed for every screen" },
+  { value: 12, suffix: "h", label: "Secure session", copy: "Signed admin access" },
+  { value: 6, suffix: "", label: "File workflows", copy: "Organize every format" },
+  { value: 1, suffix: "s", label: "Live alerts", copy: "Telegram-ready events" },
 ];
 
 export function LandingPage() {
@@ -90,15 +90,15 @@ export function LandingPage() {
           </Link>
           <nav className="desktop-nav" aria-label="Main navigation">
             <a href="#gallery">Gallery</a>
-            <a href="#statistics">Snapshot</a>
+            <a href="#statistics">Statistics</a>
             <a href="#features">Features</a>
             <a href="#how-it-works">How it works</a>
             <a href="#contact">Contact</a>
           </nav>
           <div className="nav-actions">
             <Link href={adminHref} className="text-button">Admin</Link>
-            <Link href="/gallery" className="button button-primary button-small" data-ripple>
-              Sample portfolio
+            <Link href="/u/maya-chen" className="button button-primary button-small" data-ripple>
+              View gallery
             </Link>
           </div>
         </div>
@@ -122,12 +122,12 @@ export function LandingPage() {
             </p>
             <div className="hero-actions hero-reveal reveal-four">
               <Link
-                href="/gallery"
+                href="/u/maya-chen"
                 className="button button-primary button-glow"
                 data-ripple
                 data-magnetic
               >
-                View sample portfolio <ArrowRight size={17} />
+                Explore the gallery <ArrowRight size={17} />
               </Link>
               <a href="#contact" className="button button-secondary" data-ripple data-magnetic>
                 Send a live message
@@ -215,25 +215,24 @@ export function LandingPage() {
         </div>
         <div className="gallery-caption" data-reveal>
           <span><ImageIcon size={17} /> Portrait and landscape formats stay in proportion</span>
-          <Link href="/gallery">See the public portfolio layout <ArrowRight size={16} /></Link>
+          <Link href="/u/maya-chen">Open the live gallery <ArrowRight size={16} /></Link>
         </div>
       </section>
 
       <section id="statistics" className="section statistics-section">
         <div className="shell">
           <div className="section-heading centered" data-reveal>
-            <span className="eyebrow">Sample workspace snapshot</span>
-            <h2>A practical overview of what the example collection contains.</h2>
-            <p>These numbers describe the sample credentials shown in Certlery. They are not invented performance claims.</p>
+            <span className="eyebrow">Built to feel alive</span>
+            <h2>Every interaction has purpose, motion, and immediate feedback.</h2>
           </div>
           <div className="statistics-grid">
             {stats.map((stat, index) => (
-              <article className="stat-snapshot" key={stat.label} data-reveal style={{ "--stagger": index } as React.CSSProperties}>
-                <span className="stat-snapshot-number" data-count={stat.value} data-suffix={stat.suffix}>0{stat.suffix}</span>
-                <div>
-                  <strong>{stat.label}</strong>
-                  <p>{stat.copy}</p>
+              <article className="stat-orbit" key={stat.label} data-reveal style={{ "--stagger": index } as React.CSSProperties}>
+                <div className="progress-ring">
+                  <span data-count={stat.value} data-suffix={stat.suffix}>0{stat.suffix}</span>
                 </div>
+                <strong>{stat.label}</strong>
+                <p>{stat.copy}</p>
               </article>
             ))}
           </div>
@@ -307,8 +306,8 @@ export function LandingPage() {
         <span className="cta-seal"><FileCheck2 size={30} /></span>
         <h2>Your work deserves more than a folder.</h2>
         <p>Give every course, award, and professional milestone a clear place in your story.</p>
-        <Link href="/gallery" className="button button-primary button-glow" data-ripple data-magnetic>
-          View the sample portfolio <ArrowRight size={17} />
+        <Link href="/u/maya-chen" className="button button-primary button-glow" data-ripple data-magnetic>
+          Explore Certlery <ArrowRight size={17} />
         </Link>
       </section>
 

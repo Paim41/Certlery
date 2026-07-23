@@ -67,6 +67,8 @@ export function SiteEffects() {
             if (progress < 1) requestAnimationFrame(update);
           };
           requestAnimationFrame(update);
+          const ring = element.closest<HTMLElement>(".stat-orbit");
+          if (ring) ring.style.setProperty("--progress", `${Math.min(target, 100) * 3.6}deg`);
           counterObserver.unobserve(element);
         });
       },

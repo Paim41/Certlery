@@ -13,6 +13,7 @@ import {
   Link as LinkIcon,
   List,
   Mail,
+  MapPin,
   Search,
   Share2,
   ShieldCheck,
@@ -61,15 +62,15 @@ export function PublicGallery() {
       <section className="profile-cover">
         <div className="cover-pattern" aria-hidden="true" />
         <div className="shell profile-shell">
-          <div className="profile-avatar">CS</div>
+          <div className="profile-avatar">MC</div>
           <div className="profile-copy">
-            <span className="profile-kicker"><ShieldCheck size={15} /> Example public portfolio</span>
-            <h1>Certlery Showcase</h1>
-            <p className="profile-headline">A sample credential portfolio</p>
-            <p className="profile-bio">This neutral example shows how a real public Certlery profile can organize professional certificates, academic awards, skills, and verification details.</p>
-            <div className="profile-meta"><span><Globe2 size={15} /> Public layout preview</span><span><LinkIcon size={15} /> Five example credentials</span></div>
+            <span className="profile-kicker"><ShieldCheck size={15} /> Public certificate portfolio</span>
+            <h1>Maya Chen</h1>
+            <p className="profile-headline">Product designer and frontend developer</p>
+            <p className="profile-bio">I design useful digital products and build thoughtful interfaces. This gallery brings together the courses, credentials, and awards behind my work.</p>
+            <div className="profile-meta"><span><MapPin size={15} /> Kuala Lumpur, Malaysia</span><a href="https://example.com"><LinkIcon size={15} /> mayachen.design</a><a href="https://www.linkedin.com"><Globe2 size={15} /> LinkedIn</a></div>
           </div>
-          <div className="profile-actions"><Link href="/#contact" className="button button-primary"><Mail size={16} /> Contact Certlery</Link><button className="icon-button" onClick={copyProfile} aria-label="Copy profile link"><Copy size={18} /></button></div>
+          <div className="profile-actions"><button className="button button-primary"><Mail size={16} /> Contact Maya</button><button className="icon-button" onClick={copyProfile} aria-label="Copy profile link"><Copy size={18} /></button></div>
         </div>
       </section>
 
@@ -115,7 +116,7 @@ export function PublicGallery() {
 
         <section className="public-contact">
           <span><BriefcaseBusiness size={22} /></span>
-          <div><h2>Want a portfolio like this?</h2><p>This page is a neutral example of the public layout available in Certlery.</p></div>
+          <div><h2>Interested in working together?</h2><p>See how these credentials connect to Maya’s product and interface work.</p></div>
           <Link href="/#contact" className="button button-primary" data-ripple><Mail size={16} /> Get in touch</Link>
         </section>
       </section>
