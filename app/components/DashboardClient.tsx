@@ -30,6 +30,7 @@ import {
   Link2,
   List,
   Lock,
+  LogOut,
   Maximize2,
   Menu,
   Moon,
@@ -114,6 +115,14 @@ export function DashboardClient({
   const [viewer, setViewer] = useState<CertificateRecord | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const profileInitials =
+    userName
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase())
+      .join("") || "CA";
   const totalStorageBytes = certificates.reduce(
     (total, certificate) => total + (certificate.fileSize ?? 0),
     0,
@@ -255,6 +264,15 @@ export function DashboardClient({
     anchor.remove();
   }
 
+  async function signOut() {
+    const response = await fetch("/api/admin/logout", { method: "POST" });
+    if (!response.ok) {
+      notify("Sign out failed. Please try again.");
+      return;
+    }
+    window.location.assign("/admin/login");
+  }
+
   return (
     <div className={`workspace ${dark ? "theme-dark" : ""}`}>
       <aside className={`sidebar ${sidebarOpen ? "is-open" : ""}`}>
@@ -280,10 +298,18 @@ export function DashboardClient({
           <div className="storage-track"><i style={{ width: `${Math.min(100, Math.max(2, totalStorageBytes / (1024 * 1024 * 1024) * 100))}%` }} /></div>
           <button onClick={() => navigate("storage")}>Manage storage</button>
         </div>
-        <div className="sidebar-profile">
-          <span className="avatar">MC</span>
+        <div className={`sidebar-profile ${profileMenuOpen ? "menu-open" : ""}`}>
+          <span className="avatar">{profileInitials}</span>
           <span><strong>{userName}</strong><small>Personal gallery</small></span>
-          <MoreHorizontal size={18} />
+          <button className="sidebar-profile-button" onClick={() => setProfileMenuOpen((current) => !current)} aria-expanded={profileMenuOpen} aria-haspopup="menu" aria-label="Open admin profile menu"><MoreHorizontal size={18} /></button>
+          {profileMenuOpen && (
+            <div className="sidebar-profile-menu" role="menu">
+              <button role="menuitem" onClick={() => { navigate("public"); setProfileMenuOpen(false); }}><Globe2 size={15} /> Public gallery</button>
+              <button role="menuitem" onClick={() => { navigate("storage"); setProfileMenuOpen(false); }}><FileArchive size={15} /> Manage storage</button>
+              <button role="menuitem" onClick={() => { navigate("settings"); setProfileMenuOpen(false); }}><Settings size={15} /> Settings</button>
+              <button role="menuitem" className="danger" onClick={() => void signOut()}><LogOut size={15} /> Sign out</button>
+            </div>
+          )}
         </div>
       </aside>
 
