@@ -13,8 +13,15 @@ export type CertificateRecord = {
   verification: "verified" | "link" | "unavailable";
   featured: boolean;
   credentialId?: string;
+  verificationUrl?: string;
   description: string;
   tone: "gold" | "charcoal" | "sage" | "blue" | "plum" | "sand";
+  fileUrl?: string;
+  downloadUrl?: string;
+  fileName?: string;
+  mimeType?: string;
+  allowDownload?: boolean;
+  createdAt?: string;
 };
 
 export const demoCertificates: CertificateRecord[] = [

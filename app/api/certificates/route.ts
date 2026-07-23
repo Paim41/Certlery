@@ -1,8 +1,15 @@
 import { z } from "zod";
-import { createClient } from "../../../lib/supabase/server";
+import { getAdminSession } from "../../../lib/admin-auth";
+import {
+  isCertificateStorageConfigured,
+  listCertificates,
+  saveCertificate,
+} from "../../../lib/certificate-store";
+import type { CertificateRecord } from "../../lib/demo-certificates";
 
 export const runtime = "nodejs";
 
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const acceptedTypes = new Set([
   "application/pdf",
   "image/png",
@@ -29,28 +36,29 @@ const certificateInput = z.object({
 });
 
 export async function GET() {
-  const auth = await authenticatedClient();
-  if (auth instanceof Response) return auth;
+  const unauthorized = await requireAdmin();
+  if (unauthorized) return unauthorized;
+  if (!isCertificateStorageConfigured()) return storageUnavailable();
 
-  const { supabase, user } = auth;
-  const { data, error } = await supabase
-    .from("certificates")
-    .select(
-      "id,title,issuing_organization,issue_date,expiration_date,credential_id,verification_url,verification_status,category,collection,skills,file_name,file_type,orientation,visibility,allow_download,is_featured,description,created_at",
-    )
-    .eq("user_id", user.id)
-    .order("created_at", { ascending: false });
-
-  if (error) return databaseError(error.message);
-  return Response.json({ certificates: data ?? [] });
+  try {
+    return Response.json({ certificates: await listCertificates() });
+  } catch (error) {
+    return storageError(error);
+  }
 }
 
 export async function POST(request: Request) {
-  const auth = await authenticatedClient();
-  if (auth instanceof Response) return auth;
-  const { supabase, user } = auth;
+  const unauthorized = await requireAdmin();
+  if (unauthorized) return unauthorized;
+  if (!isCertificateStorageConfigured()) return storageUnavailable();
 
-  const form = await request.formData();
+  let form: FormData;
+  try {
+    form = await request.formData();
+  } catch {
+    return Response.json({ error: "The upload request is invalid." }, { status: 400 });
+  }
+
   const rawMetadata = form.get("metadata");
   if (typeof rawMetadata !== "string") {
     return Response.json({ error: "Certificate metadata is required." }, { status: 400 });
@@ -62,104 +70,79 @@ export async function POST(request: Request) {
   } catch {
     return Response.json({ error: "Certificate metadata is invalid." }, { status: 400 });
   }
+
   const parsed = certificateInput.safeParse(parsedJson);
   if (!parsed.success) {
-    return Response.json({ error: "Review the highlighted certificate details." }, { status: 400 });
+    return Response.json(
+      { error: "Review the certificate title, issuer, dates, and verification URL." },
+      { status: 400 },
+    );
   }
 
   const fileValue = form.get("file");
   const file = fileValue instanceof File && fileValue.size > 0 ? fileValue : null;
-  if (file && (!acceptedTypes.has(file.type) || file.size > 10 * 1024 * 1024)) {
+  if (!file) {
+    return Response.json({ error: "Choose a certificate file to publish." }, { status: 400 });
+  }
+  if (!acceptedTypes.has(file.type) || file.size > MAX_FILE_SIZE) {
     return Response.json(
       { error: "Use a PDF, PNG, JPG, JPEG, or WebP file no larger than 10 MB." },
       { status: 400 },
     );
   }
 
-  const id = crypto.randomUUID();
-  const extension =
-    file?.name.split(".").pop()?.replace(/[^a-zA-Z0-9]/g, "").slice(0, 8) || "bin";
-  const fileKey = file ? `${user.id}/${id}.${extension}` : null;
-
-  if (file && fileKey) {
-    const { error: uploadError } = await supabase.storage
-      .from("certificates")
-      .upload(fileKey, file, { contentType: file.type, upsert: false });
-    if (uploadError) {
-      return Response.json(
-        { error: `The certificate file could not be uploaded: ${uploadError.message}` },
-        { status: 500 },
-      );
-    }
-  }
-
   const data = parsed.data;
-  const { data: certificate, error } = await supabase
-    .from("certificates")
-    .insert({
-      id,
-      user_id: user.id,
-      title: data.title,
-      issuing_organization: data.issuer,
-      issue_date: data.issueDate,
-      expiration_date: data.expirationDate || null,
-      credential_id: data.credentialId || null,
-      verification_url: data.verificationUrl || null,
-      verification_status: data.verificationUrl ? "link_available" : "unavailable",
-      category: data.category,
-      collection: "New certificates",
-      skills:
-        data.skills
-          ?.split(",")
-          .map((skill) => skill.trim())
-          .filter(Boolean) ?? [],
-      description: "Recently added certificate.",
-      file_key: fileKey,
-      file_name: file?.name ?? null,
-      file_type: file?.type === "application/pdf" ? "pdf" : "image",
-      orientation: data.orientation,
-      visibility: data.visibility,
-      allow_download: data.allowDownload,
-      is_featured: data.featured,
-    })
-    .select()
-    .single();
+  const certificate: CertificateRecord = {
+    id: crypto.randomUUID(),
+    title: data.title,
+    issuer: data.issuer,
+    issueDate: data.issueDate,
+    expirationDate: data.expirationDate || undefined,
+    credentialId: data.credentialId || undefined,
+    verificationUrl: data.verificationUrl || undefined,
+    category: data.category,
+    collection: "New certificates",
+    skills:
+      data.skills
+        ?.split(",")
+        .map((skill) => skill.trim())
+        .filter(Boolean) ?? [],
+    orientation: data.orientation,
+    fileType: file.type === "application/pdf" ? "pdf" : "image",
+    visibility: data.visibility,
+    verification: data.verificationUrl ? "link" : "unavailable",
+    featured: data.featured,
+    allowDownload: data.allowDownload,
+    description: "Recently added certificate.",
+    tone: "gold",
+  };
 
-  if (error) {
-    if (fileKey) await supabase.storage.from("certificates").remove([fileKey]);
-    return databaseError(error.message);
+  try {
+    const saved = await saveCertificate(certificate, file);
+    return Response.json({ certificate: saved }, { status: 201 });
+  } catch (error) {
+    return storageError(error);
   }
-
-  return Response.json({ certificate }, { status: 201 });
 }
 
-async function authenticatedClient() {
-  const supabase = await createClient();
-  if (!supabase) {
-    return Response.json(
-      { error: "Certificate storage is not configured on this deployment." },
-      { status: 503 },
-    );
-  }
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return Response.json({ error: "Authentication required." }, { status: 401 });
-  return { supabase, user };
+async function requireAdmin() {
+  const session = await getAdminSession();
+  return session
+    ? null
+    : Response.json({ error: "Admin authentication required." }, { status: 401 });
 }
 
-function databaseError(message: string) {
-  const setupMissing =
-    message.includes("relation") ||
-    message.includes("schema cache") ||
-    message.includes("Could not find the table");
+function storageUnavailable() {
   return Response.json(
-    {
-      error: setupMissing
-        ? "The Supabase schema has not been installed. Run the included migration first."
-        : message,
-    },
+    { error: "Certificate storage is not configured on this deployment." },
+    { status: 503 },
+  );
+}
+
+function storageError(error: unknown) {
+  console.error("Certificate storage error", error);
+  return Response.json(
+    { error: "Certificate storage is temporarily unavailable. Please try again." },
     { status: 500 },
   );
 }

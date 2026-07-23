@@ -18,7 +18,7 @@ export default async function AdminPage() {
   return (
     <>
       <AdminToolbar />
-      <DashboardClient localMode userName={session.username} />
+      <DashboardClient userName={session.username} />
     </>
   );
 }

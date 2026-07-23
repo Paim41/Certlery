@@ -1,37 +1,35 @@
-import { createClient } from "../../../../lib/supabase/server";
+import { getAdminSession } from "../../../../lib/admin-auth";
+import {
+  deleteCertificate,
+  isCertificateStorageConfigured,
+} from "../../../../lib/certificate-store";
+
+export const runtime = "nodejs";
 
 export async function DELETE(
   _request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
-  const supabase = await createClient();
-  if (!supabase) {
+  const session = await getAdminSession();
+  if (!session) {
+    return Response.json({ error: "Admin authentication required." }, { status: 401 });
+  }
+  if (!isCertificateStorageConfigured()) {
     return Response.json({ error: "Certificate storage is not configured." }, { status: 503 });
   }
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return Response.json({ error: "Authentication required." }, { status: 401 });
 
   const { id } = await context.params;
-  const { data: certificate, error: findError } = await supabase
-    .from("certificates")
-    .select("file_key")
-    .eq("id", id)
-    .eq("user_id", user.id)
-    .single();
-  if (findError || !certificate) {
-    return Response.json({ error: "Certificate not found." }, { status: 404 });
+  try {
+    const deleted = await deleteCertificate(id);
+    if (!deleted) {
+      return Response.json({ error: "Certificate not found." }, { status: 404 });
+    }
+    return Response.json({ deleted: true });
+  } catch (error) {
+    console.error("Certificate deletion error", error);
+    return Response.json(
+      { error: "The certificate could not be deleted. Please try again." },
+      { status: 500 },
+    );
   }
-
-  if (certificate.file_key) {
-    await supabase.storage.from("certificates").remove([certificate.file_key]);
-  }
-  const { error } = await supabase
-    .from("certificates")
-    .delete()
-    .eq("id", id)
-    .eq("user_id", user.id);
-  if (error) return Response.json({ error: error.message }, { status: 500 });
-  return Response.json({ deleted: true });
 }

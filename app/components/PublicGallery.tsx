@@ -19,18 +19,29 @@ import {
   ShieldCheck,
   X,
 } from "lucide-react";
-import { demoCertificates } from "../lib/demo-certificates";
+import { demoCertificates, type CertificateRecord } from "../lib/demo-certificates";
 import { Brand } from "./Brand";
 import { CertificateArtwork } from "./CertificateArtwork";
 
-export function PublicGallery() {
+export function PublicGallery({
+  certificates = demoCertificates,
+}: {
+  certificates?: CertificateRecord[];
+}) {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("All");
   const [layout, setLayout] = useState<"grid" | "list">("grid");
   const [copied, setCopied] = useState(false);
-  const [preview, setPreview] = useState<(typeof demoCertificates)[number] | null>(null);
-  const publicCertificates = demoCertificates.filter((certificate) => certificate.visibility === "public");
+  const [preview, setPreview] = useState<CertificateRecord | null>(null);
+  const publicCertificates = useMemo(
+    () => certificates.filter((certificate) => certificate.visibility === "public"),
+    [certificates],
+  );
   const categories = ["All", ...Array.from(new Set(publicCertificates.map((certificate) => certificate.category)))];
+  const primaryFields = categories.slice(1, 3).join(" · ") || "Professional credentials";
+  const newestCertificate = [...publicCertificates].sort(
+    (left, right) => Date.parse(right.issueDate) - Date.parse(left.issueDate),
+  )[0];
   const visible = useMemo(
     () =>
       publicCertificates.filter(
@@ -76,7 +87,7 @@ export function PublicGallery() {
             <h1>Certlery Showcase</h1>
             <p className="profile-headline">A sample credential portfolio</p>
             <p className="profile-bio">This neutral example shows how a real public Certlery profile can organize professional certificates, academic awards, skills, and verification details.</p>
-            <div className="profile-meta"><span><Globe2 size={15} /> Public layout preview</span><span><LinkIcon size={15} /> Five example credentials</span></div>
+            <div className="profile-meta"><span><Globe2 size={15} /> Public certificate gallery</span><span><LinkIcon size={15} /> {publicCertificates.length} published credentials</span></div>
           </div>
           <div className="profile-actions"><Link href="/#contact" className="button button-primary"><Mail size={16} /> Contact Certlery</Link><button className="icon-button" onClick={copyProfile} aria-label="Copy profile link"><Copy size={18} /></button></div>
         </div>
@@ -85,8 +96,8 @@ export function PublicGallery() {
       <section className="shell public-content">
         <div className="public-summary">
           <div><span>Certificate portfolio</span><strong>{publicCertificates.length} credentials</strong></div>
-          <div><span>Primary fields</span><strong>Design · Development</strong></div>
-          <div><span>Latest achievement</span><strong>May 2026</strong></div>
+          <div><span>Primary fields</span><strong>{primaryFields}</strong></div>
+          <div><span>Latest achievement</span><strong>{newestCertificate ? new Date(newestCertificate.issueDate).toLocaleDateString("en", { month: "short", year: "numeric" }) : "No certificates yet"}</strong></div>
         </div>
 
         <section className="featured-public">

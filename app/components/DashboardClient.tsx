@@ -49,7 +49,7 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import { demoCertificates, type CertificateRecord } from "../lib/demo-certificates";
+import type { CertificateRecord } from "../lib/demo-certificates";
 import { Brand } from "./Brand";
 import { CertificateArtwork } from "./CertificateArtwork";
 
@@ -95,13 +95,11 @@ const navigation: { id: WorkspacePage; label: string; icon: typeof LayoutDashboa
 
 export function DashboardClient({
   userName = "Certlery Admin",
-  localMode = false,
 }: {
   userName?: string;
-  localMode?: boolean;
 }) {
   const [page, setPage] = useState<WorkspacePage>("overview");
-  const [certificates, setCertificates] = useState<CertificateRecord[]>(localMode ? demoCertificates : []);
+  const [certificates, setCertificates] = useState<CertificateRecord[]>([]);
   const [query, setQuery] = useState("");
   const [view, setView] = useState<"grid" | "compact" | "list">("grid");
   const [filter, setFilter] = useState("all");
@@ -113,48 +111,29 @@ export function DashboardClient({
   const [selected, setSelected] = useState<string[]>([]);
 
   useEffect(() => {
-    if (localMode) return;
     let active = true;
     fetch("/api/certificates")
       .then(async (response) => {
-        if (!response.ok) throw new Error("Unable to load certificates.");
-        return response.json() as Promise<{ certificates?: Record<string, unknown>[] }>;
+        const payload = (await response.json()) as {
+          certificates?: CertificateRecord[];
+          error?: string;
+        };
+        if (!response.ok) throw new Error(payload.error ?? "Unable to load certificates.");
+        return payload;
       })
       .then(({ certificates: rows = [] }) => {
         if (!active) return;
-        const tones: CertificateRecord["tone"][] = ["gold", "charcoal", "sage", "blue", "plum", "sand"];
-        setCertificates(
-          rows.map((row, index) => ({
-            id: String(row.id),
-            title: String(row.title),
-            issuer: String(row.issuing_organization),
-            issueDate: String(row.issue_date),
-            expirationDate: row.expiration_date ? String(row.expiration_date) : undefined,
-            credentialId: row.credential_id ? String(row.credential_id) : undefined,
-            category: String(row.category ?? "Professional"),
-            collection: row.collection ? String(row.collection) : undefined,
-            skills: Array.isArray(row.skills)
-              ? row.skills.map(String)
-              : typeof row.skills === "string"
-                ? (JSON.parse(row.skills) as string[])
-                : [],
-            orientation: String(row.orientation) as CertificateRecord["orientation"],
-            fileType: String(row.file_type) as CertificateRecord["fileType"],
-            visibility: String(row.visibility) as CertificateRecord["visibility"],
-            verification: row.verification_status === "unavailable" ? "unavailable" : "link",
-            featured: Boolean(row.is_featured),
-            description: String(row.description ?? ""),
-            tone: tones[index % tones.length],
-          })),
-        );
+        setCertificates(rows);
       })
-      .catch(() => {
-        if (active) notify("Your gallery could not be refreshed. Try again shortly.");
+      .catch((error: unknown) => {
+        if (active) {
+          notify(error instanceof Error ? error.message : "Your gallery could not be refreshed.");
+        }
       });
     return () => {
       active = false;
     };
-  }, [localMode]);
+  }, []);
 
   const filtered = useMemo(() => {
     const term = query.trim().toLowerCase();
@@ -218,7 +197,7 @@ export function DashboardClient({
         </div>
         <div className="sidebar-profile">
           <span className="avatar">MC</span>
-          <span><strong>{userName}</strong><small>{localMode ? "Live admin workspace" : "Personal gallery"}</small></span>
+          <span><strong>{userName}</strong><small>Personal gallery</small></span>
           <MoreHorizontal size={18} />
         </div>
       </aside>
@@ -289,12 +268,15 @@ export function DashboardClient({
 
       {uploadOpen && (
         <UploadDialog
-          localMode={localMode}
           onClose={() => setUploadOpen(false)}
           onSaved={(certificate) => {
             setCertificates((current) => [certificate, ...current]);
             setUploadOpen(false);
-            notify("Certificate published successfully.");
+            notify(
+              certificate.visibility === "public"
+                ? "Certificate published to the public gallery."
+                : "Certificate saved successfully.",
+            );
           }}
         />
       )}
@@ -545,45 +527,84 @@ function SettingsPanel({ dark, setDark, onNotify }: { dark: boolean; setDark(val
   );
 }
 
-function UploadDialog({ localMode, onClose, onSaved }: { localMode: boolean; onClose(): void; onSaved(certificate: CertificateRecord): void }) {
+function UploadDialog({ onClose, onSaved }: { onClose(): void; onSaved(certificate: CertificateRecord): void }) {
   const [file, setFile] = useState<File | null>(null);
   const [step, setStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
-  const { register, handleSubmit, control, formState: { errors } } = useForm<UploadValues>({
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const { register, handleSubmit, control, trigger, formState: { errors } } = useForm<UploadValues>({
     resolver: zodResolver(uploadSchema),
     defaultValues: { issueDate: new Date().toISOString().slice(0, 10), orientation: "landscape", visibility: "private", featured: false, allowDownload: true, category: "Professional", verificationUrl: "" },
   });
   const values = useWatch({ control }) as UploadValues;
+  const previewUrl = useMemo(
+    () => (file ? URL.createObjectURL(file) : undefined),
+    [file],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    };
+  }, [previewUrl]);
+
+  function chooseFile(candidate: File | null) {
+    setSubmitError(null);
+    if (!candidate) {
+      setFile(null);
+      return;
+    }
+    if (candidate.size > 10 * 1024 * 1024) {
+      setFile(null);
+      setSubmitError("Choose a file no larger than 10 MB.");
+      return;
+    }
+    if (!["application/pdf", "image/png", "image/jpeg", "image/webp"].includes(candidate.type)) {
+      setFile(null);
+      setSubmitError("Use a PDF, PNG, JPG, JPEG, or WebP certificate.");
+      return;
+    }
+    setFile(candidate);
+  }
+
+  async function continueToNextStep() {
+    setSubmitError(null);
+    if (step === 1 && !file) {
+      setSubmitError("Choose the certificate file before continuing.");
+      return;
+    }
+    if (step === 2) {
+      const valid = await trigger(["title", "issuer", "issueDate", "verificationUrl", "category"]);
+      if (!valid) return;
+    }
+    setStep((current) => Math.min(4, current + 1));
+  }
 
   async function save(data: UploadValues) {
+    if (!file) {
+      setStep(1);
+      setSubmitError("Choose the certificate file before publishing.");
+      return;
+    }
     setSubmitting(true);
-    const certificate: CertificateRecord = {
-      id: crypto.randomUUID(),
-      title: data.title,
-      issuer: data.issuer,
-      issueDate: data.issueDate,
-      expirationDate: data.expirationDate || undefined,
-      credentialId: data.credentialId || undefined,
-      category: data.category,
-      collection: "New certificates",
-      skills: data.skills?.split(",").map((skill) => skill.trim()).filter(Boolean) ?? [],
-      orientation: data.orientation,
-      fileType: file?.type === "application/pdf" ? "pdf" : "image",
-      visibility: data.visibility,
-      verification: data.verificationUrl ? "link" : "unavailable",
-      featured: data.featured,
-      description: "Recently added certificate.",
-      tone: "gold",
-    };
+    setSubmitError(null);
     try {
-      if (!localMode) {
-        const form = new FormData();
-        form.append("metadata", JSON.stringify(data));
-        if (file) form.append("file", file);
-        const response = await fetch("/api/certificates", { method: "POST", body: form });
-        if (!response.ok) throw new Error("The certificate could not be saved.");
+      const form = new FormData();
+      form.append("metadata", JSON.stringify(data));
+      form.append("file", file);
+      const response = await fetch("/api/certificates", { method: "POST", body: form });
+      const payload = (await response.json()) as {
+        certificate?: CertificateRecord;
+        error?: string;
+      };
+      if (!response.ok || !payload.certificate) {
+        throw new Error(payload.error ?? "The certificate could not be saved.");
       }
-      onSaved(certificate);
+      onSaved(payload.certificate);
+    } catch (error) {
+      setSubmitError(
+        error instanceof Error ? error.message : "The certificate could not be saved.",
+      );
     } finally {
       setSubmitting(false);
     }
@@ -599,7 +620,7 @@ function UploadDialog({ localMode, onClose, onSaved }: { localMode: boolean; onC
             {step === 1 && (
               <>
                 <label className="dropzone">
-                  <input type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
+                  <input type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" onChange={(event) => chooseFile(event.target.files?.[0] ?? null)} />
                   <span className="dropzone-icon"><UploadCloud size={27} /></span>
                   <strong>{file ? file.name : "Drop your certificate here"}</strong>
                   <p>{file ? `${(file.size / 1024 / 1024).toFixed(2)} MB · Ready to upload` : "or browse files from your device"}</p>
@@ -631,12 +652,13 @@ function UploadDialog({ localMode, onClose, onSaved }: { localMode: boolean; onC
             )}
             {step === 4 && (
               <div className="review-layout">
-                <CertificateArtwork certificate={{ id: "preview", title: values.title || "Certificate title", issuer: values.issuer || "Issuing organization", issueDate: values.issueDate, expirationDate: values.expirationDate, credentialId: values.credentialId, category: values.category, skills: values.skills?.split(",") ?? [], orientation: values.orientation, fileType: file?.type === "application/pdf" ? "pdf" : "image", visibility: values.visibility, verification: values.verificationUrl ? "link" : "unavailable", featured: values.featured, description: "", tone: "gold" }} />
+                <CertificateArtwork certificate={{ id: "preview", title: values.title || "Certificate title", issuer: values.issuer || "Issuing organization", issueDate: values.issueDate, expirationDate: values.expirationDate, credentialId: values.credentialId, category: values.category, skills: values.skills?.split(",") ?? [], orientation: values.orientation, fileType: file?.type === "application/pdf" ? "pdf" : "image", visibility: values.visibility, verification: values.verificationUrl ? "link" : "unavailable", featured: values.featured, description: "", tone: "gold", fileUrl: previewUrl, fileName: file?.name, mimeType: file?.type, allowDownload: values.allowDownload }} />
                 <div><h3>{values.title || "Untitled certificate"}</h3><p>{values.issuer || "No issuer entered"}</p><dl><div><dt>Issue date</dt><dd>{values.issueDate || "Not set"}</dd></div><div><dt>Category</dt><dd>{values.category}</dd></div><div><dt>Orientation</dt><dd>{values.orientation}</dd></div><div><dt>Visibility</dt><dd>{values.visibility}</dd></div><div><dt>File</dt><dd>{file?.name ?? "Metadata only"}</dd></div></dl><div className="review-warning"><CircleAlert size={17} /> Confirm that the title and issuing organization match the original certificate.</div></div>
               </div>
             )}
           </div>
-          <footer><button type="button" className="text-button" onClick={onClose}>Cancel</button><div>{step > 1 && <button type="button" className="button button-secondary" onClick={() => setStep((current) => current - 1)}>Back</button>}{step < 4 ? <button type="button" className="button button-primary" onClick={() => setStep((current) => current + 1)}>Continue</button> : <button type="submit" className="button button-primary" disabled={submitting}>{submitting ? "Publishing..." : "Publish certificate"}</button>}</div></footer>
+          {submitError && <div className="upload-error" role="alert"><CircleAlert size={16} /> {submitError}</div>}
+          <footer><button type="button" className="text-button" onClick={onClose}>Cancel</button><div>{step > 1 && <button type="button" className="button button-secondary" onClick={() => { setSubmitError(null); setStep((current) => current - 1); }}>Back</button>}{step < 4 ? <button type="button" className="button button-primary" onClick={continueToNextStep}>Continue</button> : <button type="submit" className="button button-primary" disabled={submitting}>{submitting ? "Publishing..." : values.visibility === "public" ? "Publish certificate" : "Save certificate"}</button>}</div></footer>
         </form>
       </div>
     </div>
