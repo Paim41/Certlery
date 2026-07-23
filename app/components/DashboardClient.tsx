@@ -94,7 +94,7 @@ const navigation: { id: WorkspacePage; label: string; icon: typeof LayoutDashboa
 ];
 
 export function DashboardClient({
-  userName = "Maya Chen",
+  userName = "Certlery Admin",
   localMode = false,
 }: {
   userName?: string;
@@ -507,9 +507,9 @@ function Expiring({ certificates, onView }: { certificates: CertificateRecord[];
 function PublicSettings({ onNotify }: { onNotify(message: string): void }) {
   return (
     <>
-      <div className="workspace-title"><div><span className="eyebrow">Public gallery</span><h1>Shape your public profile.</h1><p>Choose what people see when you share your Certlery link.</p></div><Link href="/u/maya-chen" className="button button-secondary"><Eye size={17} /> Preview gallery</Link></div>
+      <div className="workspace-title"><div><span className="eyebrow">Public gallery</span><h1>Shape your public profile.</h1><p>Choose what people see when you share your Certlery link.</p></div><Link href="/gallery" className="button button-secondary"><Eye size={17} /> Preview gallery</Link></div>
       <div className="settings-layout">
-        <section className="panel settings-card"><h2>Profile details</h2><p>Introduce your work before visitors reach the certificates.</p><div className="form-grid"><label>Gallery title<input defaultValue="Maya Chen — Credentials" /></label><label>Professional headline<input defaultValue="Product designer and frontend developer" /></label><label className="full-field">Biography<textarea defaultValue="I design useful digital products and build thoughtful interfaces. This gallery brings together the courses, credentials, and awards behind my work." /></label><label>Public username<div className="input-prefix"><span>certlery.site/u/</span><input defaultValue="maya-chen" /></div></label><label>Default layout<select defaultValue="standard"><option value="standard">Standard grid</option><option value="compact">Compact gallery</option><option value="editorial">Editorial list</option></select></label></div></section>
+        <section className="panel settings-card"><h2>Profile details</h2><p>Introduce your work before visitors reach the certificates.</p><div className="form-grid"><label>Gallery title<input defaultValue="Certlery Showcase" /></label><label>Professional headline<input defaultValue="A sample credential portfolio" /></label><label className="full-field">Biography<textarea defaultValue="A public portfolio for professional certificates, academic awards, skills, and verification details." /></label><label>Public username<div className="input-prefix"><span>certlery.app/</span><input defaultValue="gallery" /></div></label><label>Default layout<select defaultValue="standard"><option value="standard">Standard grid</option><option value="compact">Compact gallery</option><option value="editorial">Editorial list</option></select></label></div></section>
         <aside className="panel settings-card"><h2>Profile visibility</h2><p>Control discovery and downloads.</p><Toggle label="Public profile" copy="Anyone with the link can view your gallery." checked /><Toggle label="Search engine indexing" copy="Allow your profile to appear in search results." checked /><Toggle label="Show certificate count" copy="Display the total on your profile." checked /><Toggle label="Allow downloads" copy="Use each certificate’s download preference." /><button className="button button-primary full-button" onClick={() => onNotify("Public gallery settings saved.")}>Save public settings</button></aside>
       </div>
     </>
