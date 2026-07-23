@@ -1,6 +1,7 @@
-import { env } from "cloudflare:workers";
 import { z } from "zod";
-import { getChatGPTUser } from "../../chatgpt-auth";
+import { createClient } from "../../../lib/supabase/server";
+
+export const runtime = "nodejs";
 
 const acceptedTypes = new Set([
   "application/pdf",
@@ -27,68 +28,27 @@ const certificateInput = z.object({
   allowDownload: z.boolean(),
 });
 
-async function ensureCertificateTable() {
-  const database = env.DB;
-  await database.batch([
-    database
-      .prepare(`CREATE TABLE IF NOT EXISTS certificates (
-        id TEXT PRIMARY KEY,
-        user_email TEXT NOT NULL,
-        title TEXT NOT NULL,
-        issuing_organization TEXT NOT NULL,
-        certificate_type TEXT NOT NULL DEFAULT 'Certificate',
-        issue_date TEXT NOT NULL,
-        expiration_date TEXT,
-        credential_id TEXT,
-        verification_url TEXT,
-        verification_status TEXT NOT NULL DEFAULT 'link_available',
-        category TEXT NOT NULL DEFAULT 'Professional',
-        collection TEXT,
-        skills TEXT NOT NULL DEFAULT '[]',
-        description TEXT NOT NULL DEFAULT '',
-        private_notes TEXT NOT NULL DEFAULT '',
-        file_key TEXT,
-        file_name TEXT,
-        file_type TEXT NOT NULL DEFAULT 'image',
-        orientation TEXT NOT NULL DEFAULT 'landscape',
-        rotation INTEGER NOT NULL DEFAULT 0,
-        visibility TEXT NOT NULL DEFAULT 'private',
-        allow_download INTEGER NOT NULL DEFAULT 1,
-        show_credential_id INTEGER NOT NULL DEFAULT 1,
-        is_featured INTEGER NOT NULL DEFAULT 0,
-        is_draft INTEGER NOT NULL DEFAULT 0,
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-      )`),
-    database.prepare(
-      "CREATE INDEX IF NOT EXISTS certificates_owner_idx ON certificates (user_email, created_at)",
-    ),
-  ]);
-}
-
 export async function GET() {
-  const user = await getChatGPTUser();
-  if (!user) return Response.json({ error: "Authentication required." }, { status: 401 });
+  const auth = await authenticatedClient();
+  if (auth instanceof Response) return auth;
 
-  await ensureCertificateTable();
-  const result = await env.DB.prepare(
-    `SELECT id, title, issuing_organization, issue_date, expiration_date,
-      credential_id, verification_url, verification_status, category, collection,
-      skills, file_name, file_type, orientation, visibility, allow_download,
-      is_featured, description, created_at
-     FROM certificates
-     WHERE user_email = ?
-     ORDER BY created_at DESC`,
-  )
-    .bind(user.email)
-    .all();
+  const { supabase, user } = auth;
+  const { data, error } = await supabase
+    .from("certificates")
+    .select(
+      "id,title,issuing_organization,issue_date,expiration_date,credential_id,verification_url,verification_status,category,collection,skills,file_name,file_type,orientation,visibility,allow_download,is_featured,description,created_at",
+    )
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: false });
 
-  return Response.json({ certificates: result.results });
+  if (error) return databaseError(error.message);
+  return Response.json({ certificates: data ?? [] });
 }
 
 export async function POST(request: Request) {
-  const user = await getChatGPTUser();
-  if (!user) return Response.json({ error: "Authentication required." }, { status: 401 });
+  const auth = await authenticatedClient();
+  if (auth instanceof Response) return auth;
+  const { supabase, user } = auth;
 
   const form = await request.formData();
   const rawMetadata = form.get("metadata");
@@ -116,54 +76,90 @@ export async function POST(request: Request) {
     );
   }
 
-  await ensureCertificateTable();
   const id = crypto.randomUUID();
-  const extension = file?.name.split(".").pop()?.replace(/[^a-zA-Z0-9]/g, "").slice(0, 8) || "bin";
-  const fileKey = file ? `${encodeURIComponent(user.email)}/${id}.${extension}` : null;
+  const extension =
+    file?.name.split(".").pop()?.replace(/[^a-zA-Z0-9]/g, "").slice(0, 8) || "bin";
+  const fileKey = file ? `${user.id}/${id}.${extension}` : null;
+
   if (file && fileKey) {
-    await env.CERTIFICATE_FILES.put(fileKey, file.stream(), {
-      httpMetadata: { contentType: file.type, contentDisposition: `inline; filename="${file.name.replace(/["\r\n]/g, "")}"` },
-      customMetadata: { owner: user.email, certificateId: id },
-    });
+    const { error: uploadError } = await supabase.storage
+      .from("certificates")
+      .upload(fileKey, file, { contentType: file.type, upsert: false });
+    if (uploadError) {
+      return Response.json(
+        { error: `The certificate file could not be uploaded: ${uploadError.message}` },
+        { status: 500 },
+      );
+    }
   }
 
   const data = parsed.data;
-  await env.DB.prepare(
-    `INSERT INTO certificates (
-      id, user_email, title, issuing_organization, issue_date, expiration_date,
-      credential_id, verification_url, verification_status, category, collection,
-      skills, description, file_key, file_name, file_type, orientation, visibility,
-      allow_download, is_featured
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  )
-    .bind(
+  const { data: certificate, error } = await supabase
+    .from("certificates")
+    .insert({
       id,
-      user.email,
-      data.title,
-      data.issuer,
-      data.issueDate,
-      data.expirationDate || null,
-      data.credentialId || null,
-      data.verificationUrl || null,
-      data.verificationUrl ? "link_available" : "unavailable",
-      data.category,
-      "New certificates",
-      JSON.stringify(
+      user_id: user.id,
+      title: data.title,
+      issuing_organization: data.issuer,
+      issue_date: data.issueDate,
+      expiration_date: data.expirationDate || null,
+      credential_id: data.credentialId || null,
+      verification_url: data.verificationUrl || null,
+      verification_status: data.verificationUrl ? "link_available" : "unavailable",
+      category: data.category,
+      collection: "New certificates",
+      skills:
         data.skills
           ?.split(",")
           .map((skill) => skill.trim())
           .filter(Boolean) ?? [],
-      ),
-      "Recently added certificate.",
-      fileKey,
-      file?.name ?? null,
-      file?.type === "application/pdf" ? "pdf" : "image",
-      data.orientation,
-      data.visibility,
-      data.allowDownload ? 1 : 0,
-      data.featured ? 1 : 0,
-    )
-    .run();
+      description: "Recently added certificate.",
+      file_key: fileKey,
+      file_name: file?.name ?? null,
+      file_type: file?.type === "application/pdf" ? "pdf" : "image",
+      orientation: data.orientation,
+      visibility: data.visibility,
+      allow_download: data.allowDownload,
+      is_featured: data.featured,
+    })
+    .select()
+    .single();
 
-  return Response.json({ certificate: { id, ...data, fileName: file?.name ?? null } }, { status: 201 });
+  if (error) {
+    if (fileKey) await supabase.storage.from("certificates").remove([fileKey]);
+    return databaseError(error.message);
+  }
+
+  return Response.json({ certificate }, { status: 201 });
+}
+
+async function authenticatedClient() {
+  const supabase = await createClient();
+  if (!supabase) {
+    return Response.json(
+      { error: "Certificate storage is not configured on this deployment." },
+      { status: 503 },
+    );
+  }
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return Response.json({ error: "Authentication required." }, { status: 401 });
+  return { supabase, user };
+}
+
+function databaseError(message: string) {
+  const setupMissing =
+    message.includes("relation") ||
+    message.includes("schema cache") ||
+    message.includes("Could not find the table");
+  return Response.json(
+    {
+      error: setupMissing
+        ? "The Supabase schema has not been installed. Run the included migration first."
+        : message,
+    },
+    { status: 500 },
+  );
 }

@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { requireChatGPTUser } from "../chatgpt-auth";
+import { isSupabaseConfigured, requireAppUser } from "../auth";
 import { DashboardClient } from "../components/DashboardClient";
 
 export const dynamic = "force-dynamic";
@@ -10,6 +10,10 @@ export const metadata: Metadata = {
 };
 
 export default async function DashboardPage() {
-  const user = await requireChatGPTUser("/dashboard");
+  if (!isSupabaseConfigured()) {
+    return <DashboardClient demo userName="Maya Chen" />;
+  }
+
+  const user = await requireAppUser("/dashboard");
   return <DashboardClient userName={user.fullName ?? user.displayName} />;
 }

@@ -1,7 +1,12 @@
 import { LandingPage } from "./components/LandingPage";
-import { getChatGPTUser } from "./chatgpt-auth";
+import { getAppUser, isSupabaseConfigured } from "./auth";
 
 export default async function Home() {
-  const user = await getChatGPTUser();
-  return <LandingPage signedIn={Boolean(user)} />;
+  const user = await getAppUser();
+  return (
+    <LandingPage
+      signedIn={Boolean(user)}
+      authEnabled={isSupabaseConfigured()}
+    />
+  );
 }

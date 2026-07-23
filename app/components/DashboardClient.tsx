@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import {
   Archive,
@@ -45,7 +45,6 @@ import {
   Sun,
   Trash2,
   UploadCloud,
-  User,
   X,
   ZoomIn,
   ZoomOut,
@@ -134,7 +133,11 @@ export function DashboardClient({
             credentialId: row.credential_id ? String(row.credential_id) : undefined,
             category: String(row.category ?? "Professional"),
             collection: row.collection ? String(row.collection) : undefined,
-            skills: typeof row.skills === "string" ? JSON.parse(row.skills) as string[] : [],
+            skills: Array.isArray(row.skills)
+              ? row.skills.map(String)
+              : typeof row.skills === "string"
+                ? (JSON.parse(row.skills) as string[])
+                : [],
             orientation: String(row.orientation) as CertificateRecord["orientation"],
             fileType: String(row.file_type) as CertificateRecord["fileType"],
             visibility: String(row.visibility) as CertificateRecord["visibility"],
@@ -546,11 +549,11 @@ function UploadDialog({ demo, onClose, onSaved }: { demo: boolean; onClose(): vo
   const [file, setFile] = useState<File | null>(null);
   const [step, setStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
-  const { register, handleSubmit, watch, formState: { errors } } = useForm<UploadValues>({
+  const { register, handleSubmit, control, formState: { errors } } = useForm<UploadValues>({
     resolver: zodResolver(uploadSchema),
     defaultValues: { issueDate: new Date().toISOString().slice(0, 10), orientation: "landscape", visibility: "private", featured: false, allowDownload: true, category: "Professional", verificationUrl: "" },
   });
-  const values = watch();
+  const values = useWatch({ control }) as UploadValues;
 
   async function save(data: UploadValues) {
     setSubmitting(true);

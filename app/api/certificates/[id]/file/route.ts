@@ -1,45 +1,44 @@
-import { env } from "cloudflare:workers";
-import { getChatGPTUser } from "../../../../chatgpt-auth";
+import { createClient } from "../../../../../lib/supabase/server";
+
+export const runtime = "nodejs";
 
 export async function GET(
   _request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
-  const { id } = await context.params;
-  const user = await getChatGPTUser();
-  const certificate = await env.DB.prepare(
-    `SELECT user_email, file_key, file_name, visibility, allow_download
-     FROM certificates WHERE id = ?`,
-  )
-    .bind(id)
-    .first<{
-      user_email: string;
-      file_key: string | null;
-      file_name: string | null;
-      visibility: string;
-      allow_download: number;
-    }>();
+  const supabase = await createClient();
+  if (!supabase) {
+    return Response.json({ error: "Certificate storage is not configured." }, { status: 503 });
+  }
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return Response.json({ error: "Authentication required." }, { status: 401 });
 
-  if (!certificate || !certificate.file_key) {
+  const { id } = await context.params;
+  const { data: certificate, error: findError } = await supabase
+    .from("certificates")
+    .select("file_key,file_name")
+    .eq("id", id)
+    .eq("user_id", user.id)
+    .single();
+  if (findError || !certificate?.file_key) {
     return Response.json({ error: "Certificate file not found." }, { status: 404 });
   }
-  const isOwner = user?.email === certificate.user_email;
-  const isPubliclyVisible = certificate.visibility === "public" && certificate.allow_download === 1;
-  if (!isOwner && !isPubliclyVisible) {
-    return Response.json({ error: "You do not have access to this file." }, { status: 403 });
+
+  const { data, error } = await supabase.storage
+    .from("certificates")
+    .download(certificate.file_key);
+  if (error || !data) {
+    return Response.json({ error: "Certificate file not found." }, { status: 404 });
   }
 
-  const object = await env.CERTIFICATE_FILES.get(certificate.file_key);
-  if (!object) return Response.json({ error: "Certificate file not found." }, { status: 404 });
-
-  const headers = new Headers();
-  object.writeHttpMetadata(headers);
-  headers.set("etag", object.httpEtag);
-  headers.set("cache-control", isOwner ? "private, no-store" : "public, max-age=300");
-  headers.set("x-content-type-options", "nosniff");
-  headers.set(
-    "content-disposition",
-    `inline; filename="${(certificate.file_name ?? "certificate").replace(/["\r\n]/g, "")}"`,
-  );
-  return new Response(object.body, { headers });
+  return new Response(data, {
+    headers: {
+      "content-type": data.type || "application/octet-stream",
+      "content-disposition": `inline; filename="${(certificate.file_name ?? "certificate").replace(/["\r\n]/g, "")}"`,
+      "cache-control": "private, no-store",
+      "x-content-type-options": "nosniff",
+    },
+  });
 }

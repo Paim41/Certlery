@@ -48,8 +48,18 @@ const features = [
   },
 ];
 
-export function LandingPage({ signedIn }: { signedIn: boolean }) {
-  const dashboardHref = signedIn ? "/dashboard" : "/signin-with-chatgpt?return_to=%2Fdashboard";
+export function LandingPage({
+  signedIn,
+  authEnabled,
+}: {
+  signedIn: boolean;
+  authEnabled: boolean;
+}) {
+  const dashboardHref = signedIn
+    ? "/dashboard"
+    : authEnabled
+      ? "/signin?return_to=%2Fdashboard"
+      : "/demo";
 
   return (
     <main className="landing">
