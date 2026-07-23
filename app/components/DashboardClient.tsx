@@ -710,6 +710,7 @@ function PublicSettings({
   const [settings, setSettings] = useState<GallerySettings>(defaultGallerySettings);
   const [savingProfile, setSavingProfile] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [galleryCropFile, setGalleryCropFile] = useState<File | null>(null);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const galleryImageInput = useRef<HTMLInputElement>(null);
 
@@ -809,7 +810,7 @@ function PublicSettings({
               <Image src={settings.profileImageUrl ?? "/certlery-showcase-profile.png"} alt="Public gallery profile" width={64} height={64} unoptimized={Boolean(settings.profileImageUrl)} />
             </span>
             <div><strong>Profile picture</strong><small>PNG, JPG, or WebP, up to 5 MB.</small><button className="button button-secondary button-small" disabled={uploadingImage} onClick={() => galleryImageInput.current?.click()}><Camera size={15} /> {uploadingImage ? "Uploading..." : "Change picture"}</button></div>
-            <input ref={galleryImageInput} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadProfileImage(file); }} />
+            <input ref={galleryImageInput} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(event) => { const file = event.target.files?.[0]; if (file) setGalleryCropFile(file); }} />
           </div>
           <div className="form-grid">
             <label>Gallery title<input value={settings.title} onChange={(event) => setSettings((current) => ({ ...current, title: event.target.value }))} /></label>
@@ -849,6 +850,20 @@ function PublicSettings({
           )) : <div className="empty-state compact-empty"><FileCheck2 size={24} /><p>Add a certificate to begin managing the public gallery.</p></div>}
         </div>
       </section>
+      {galleryCropFile && (
+        <ImageCropDialog
+          file={galleryCropFile}
+          title="Crop public profile picture"
+          onCancel={() => {
+            setGalleryCropFile(null);
+            if (galleryImageInput.current) galleryImageInput.current.value = "";
+          }}
+          onCrop={(cropped) => {
+            setGalleryCropFile(null);
+            void uploadProfileImage(cropped);
+          }}
+        />
+      )}
     </>
   );
 }
@@ -1057,6 +1072,168 @@ function SettingsPanel({ dark, setDark, onNotify }: { dark: boolean; setDark(val
   );
 }
 
+const PROFILE_CROP_SIZE = 320;
+const PROFILE_OUTPUT_SIZE = 640;
+
+function ImageCropDialog({
+  file,
+  title,
+  onCancel,
+  onCrop,
+}: {
+  file: File;
+  title: string;
+  onCancel(): void;
+  onCrop(file: File): void;
+}) {
+  const imageRef = useRef<HTMLImageElement>(null);
+  const dragRef = useRef<{ pointerId: number; startX: number; startY: number; imageX: number; imageY: number } | null>(null);
+  const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+  const [zoom, setZoom] = useState(1);
+  const [position, setPosition] = useState({ x: 0, y: 0 });
+  const [processing, setProcessing] = useState(false);
+  const [cropError, setCropError] = useState<string | null>(null);
+
+  const sourceUrl = useMemo(() => URL.createObjectURL(file), [file]);
+
+  useEffect(() => () => URL.revokeObjectURL(sourceUrl), [sourceUrl]);
+
+  const imageLayout = useMemo(() => {
+    if (!dimensions.width || !dimensions.height) {
+      return { width: PROFILE_CROP_SIZE, height: PROFILE_CROP_SIZE, maxX: 0, maxY: 0 };
+    }
+    const baseScale = Math.max(
+      PROFILE_CROP_SIZE / dimensions.width,
+      PROFILE_CROP_SIZE / dimensions.height,
+    );
+    const width = dimensions.width * baseScale * zoom;
+    const height = dimensions.height * baseScale * zoom;
+    return {
+      width,
+      height,
+      maxX: Math.max(0, (width - PROFILE_CROP_SIZE) / 2),
+      maxY: Math.max(0, (height - PROFILE_CROP_SIZE) / 2),
+    };
+  }, [dimensions, zoom]);
+
+  const clampedPosition = clampCropPosition(position, imageLayout);
+
+  function startDrag(event: React.PointerEvent<HTMLDivElement>) {
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      imageX: clampedPosition.x,
+      imageY: clampedPosition.y,
+    };
+  }
+
+  function moveImage(event: React.PointerEvent<HTMLDivElement>) {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    setPosition(
+      clampCropPosition(
+        {
+          x: drag.imageX + event.clientX - drag.startX,
+          y: drag.imageY + event.clientY - drag.startY,
+        },
+        imageLayout,
+      ),
+    );
+  }
+
+  function stopDrag(event: React.PointerEvent<HTMLDivElement>) {
+    if (dragRef.current?.pointerId === event.pointerId) dragRef.current = null;
+  }
+
+  async function createCrop() {
+    const image = imageRef.current;
+    if (!image || !dimensions.width || !dimensions.height) {
+      setCropError("The selected image is still loading.");
+      return;
+    }
+    setProcessing(true);
+    setCropError(null);
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = PROFILE_OUTPUT_SIZE;
+      canvas.height = PROFILE_OUTPUT_SIZE;
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error("Your browser could not prepare the crop.");
+      const ratio = PROFILE_OUTPUT_SIZE / PROFILE_CROP_SIZE;
+      const drawX = ((PROFILE_CROP_SIZE - imageLayout.width) / 2 + clampedPosition.x) * ratio;
+      const drawY = ((PROFILE_CROP_SIZE - imageLayout.height) / 2 + clampedPosition.y) * ratio;
+      context.imageSmoothingEnabled = true;
+      context.imageSmoothingQuality = "high";
+      context.drawImage(
+        image,
+        drawX,
+        drawY,
+        imageLayout.width * ratio,
+        imageLayout.height * ratio,
+      );
+      const blob = await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob(resolve, "image/webp", 0.92),
+      );
+      if (!blob) throw new Error("The cropped image could not be created.");
+      const baseName = file.name.replace(/\.[^.]+$/, "") || "profile";
+      onCrop(new File([blob], `${baseName}-cropped.webp`, { type: "image/webp" }));
+    } catch (error) {
+      setCropError(error instanceof Error ? error.message : "The cropped image could not be created.");
+    } finally {
+      setProcessing(false);
+    }
+  }
+
+  return (
+    <div
+      className="modal-backdrop crop-modal-backdrop"
+      role="presentation"
+      onClick={(event) => {
+        event.stopPropagation();
+        if (event.target === event.currentTarget) onCancel();
+      }}
+    >
+      <section className="image-crop-dialog panel" role="dialog" aria-modal="true" aria-labelledby="image-crop-title">
+        <header><div><span className="eyebrow">Position and resize</span><h2 id="image-crop-title">{title}</h2><p>Drag the photo to reposition it inside the circle.</p></div><button className="icon-button" onClick={onCancel} aria-label="Close image cropper"><X size={19} /></button></header>
+        <div
+          className="crop-stage"
+          onPointerDown={startDrag}
+          onPointerMove={moveImage}
+          onPointerUp={stopDrag}
+          onPointerCancel={stopDrag}
+        >
+          <Image
+            ref={imageRef}
+            src={sourceUrl}
+            alt="Crop preview"
+            width={Math.max(1, Math.round(imageLayout.width))}
+            height={Math.max(1, Math.round(imageLayout.height))}
+            unoptimized
+            draggable={false}
+            onLoad={(event) =>
+              setDimensions({
+                width: event.currentTarget.naturalWidth,
+                height: event.currentTarget.naturalHeight,
+              })
+            }
+            style={{
+              width: imageLayout.width,
+              height: imageLayout.height,
+              transform: `translate(calc(-50% + ${clampedPosition.x}px), calc(-50% + ${clampedPosition.y}px))`,
+            }}
+          />
+          <span className="crop-circle" aria-hidden="true" />
+        </div>
+        <label className="crop-zoom"><ZoomOut size={17} /><input type="range" min="1" max="3" step="0.01" value={zoom} onChange={(event) => setZoom(Number(event.target.value))} aria-label="Photo zoom" /><ZoomIn size={17} /><strong>{Math.round(zoom * 100)}%</strong></label>
+        {cropError && <div className="upload-error" role="alert"><CircleAlert size={16} /> {cropError}</div>}
+        <footer><button className="button button-secondary" onClick={onCancel}>Cancel</button><button className="button button-primary" disabled={processing || !dimensions.width} onClick={() => void createCrop()}>{processing ? "Cropping..." : "Use cropped photo"}</button></footer>
+      </section>
+    </div>
+  );
+}
+
 function AdminProfileDialog({
   profile,
   onClose,
@@ -1068,6 +1245,7 @@ function AdminProfileDialog({
 }) {
   const [displayName, setDisplayName] = useState(profile.displayName);
   const [file, setFile] = useState<File | null>(null);
+  const [cropFile, setCropFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const previewUrl = useMemo(() => (file ? URL.createObjectURL(file) : profile.avatarUrl), [file, profile.avatarUrl]);
@@ -1115,13 +1293,24 @@ function AdminProfileDialog({
         <header><div><span className="eyebrow">Admin account</span><h2 id="admin-profile-title">Edit your profile</h2><p>This picture and name appear only in your private admin workspace.</p></div><button className="icon-button" onClick={onClose} aria-label="Close profile editor"><X size={19} /></button></header>
         <div className="admin-profile-photo">
           <span>{previewUrl ? <Image src={previewUrl} alt="Admin profile preview" width={78} height={78} unoptimized /> : initials}</span>
-          <label className="button button-secondary"><Camera size={16} /> Choose picture<input type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(event) => setFile(event.target.files?.[0] ?? null)} /></label>
+          <label className="button button-secondary"><Camera size={16} /> Choose picture<input type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(event) => { const selected = event.target.files?.[0]; if (selected) setCropFile(selected); event.target.value = ""; }} /></label>
           <small>PNG, JPG, or WebP, up to 5 MB.</small>
         </div>
         <label className="profile-name-field">Display name<input value={displayName} maxLength={80} onChange={(event) => setDisplayName(event.target.value)} /><small>Login username: {profile.username}</small></label>
         {error && <div className="upload-error" role="alert"><CircleAlert size={16} /> {error}</div>}
         <footer><button className="button button-secondary" onClick={onClose}>Cancel</button><button className="button button-primary" disabled={saving || displayName.trim().length < 2} onClick={() => void save()}>{saving ? "Saving..." : "Save profile"}</button></footer>
       </section>
+      {cropFile && (
+        <ImageCropDialog
+          file={cropFile}
+          title="Crop admin profile picture"
+          onCancel={() => setCropFile(null)}
+          onCrop={(cropped) => {
+            setFile(cropped);
+            setCropFile(null);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -1494,4 +1683,14 @@ function validOrientation(value: string | undefined): CertificateRecord["orienta
 
 function validVisibility(value: string | undefined): CertificateRecord["visibility"] {
   return value === "public" || value === "unlisted" ? value : "private";
+}
+
+function clampCropPosition(
+  position: { x: number; y: number },
+  layout: { maxX: number; maxY: number },
+) {
+  return {
+    x: Math.max(-layout.maxX, Math.min(layout.maxX, position.x)),
+    y: Math.max(-layout.maxY, Math.min(layout.maxY, position.y)),
+  };
 }

@@ -2669,6 +2669,108 @@ a {
   margin-top: 22px;
 }
 
+.crop-modal-backdrop {
+  z-index: 120;
+}
+
+.image-crop-dialog {
+  width: min(430px, 100%);
+  max-height: calc(100dvh - 40px);
+  overflow: auto;
+  padding: 24px;
+  color: var(--workspace-ink);
+  background: var(--workspace-surface);
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.38);
+}
+
+.image-crop-dialog > header {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 20px;
+}
+
+.image-crop-dialog h2 {
+  margin: 6px 0;
+  font-size: 19px;
+}
+
+.image-crop-dialog header p {
+  margin: 0;
+  color: var(--workspace-text);
+  font-size: 10px;
+}
+
+.crop-stage {
+  position: relative;
+  width: 320px;
+  height: 320px;
+  max-width: 100%;
+  margin: 0 auto;
+  overflow: hidden;
+  touch-action: none;
+  cursor: grab;
+  background:
+    linear-gradient(45deg, var(--workspace-raised) 25%, transparent 25%) 0 0 / 20px 20px,
+    linear-gradient(-45deg, var(--workspace-raised) 25%, transparent 25%) 0 10px / 20px 20px,
+    linear-gradient(45deg, transparent 75%, var(--workspace-raised) 75%) 10px -10px / 20px 20px,
+    linear-gradient(-45deg, transparent 75%, var(--workspace-raised) 75%) -10px 0 / 20px 20px,
+    var(--workspace-bg);
+  border: 1px solid var(--workspace-border);
+  user-select: none;
+}
+
+.crop-stage:active {
+  cursor: grabbing;
+}
+
+.crop-stage img {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  max-width: none;
+  object-fit: fill;
+  pointer-events: none;
+  user-select: none;
+}
+
+.crop-circle {
+  position: absolute;
+  inset: 0;
+  border: 3px solid rgba(255, 255, 255, 0.94);
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 999px rgba(15, 13, 10, 0.48),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.18);
+  pointer-events: none;
+}
+
+.crop-zoom {
+  display: grid;
+  grid-template-columns: auto 1fr auto 42px;
+  align-items: center;
+  gap: 10px;
+  margin: 18px 0;
+  color: var(--workspace-text);
+}
+
+.crop-zoom input {
+  width: 100%;
+  accent-color: var(--gold-dark);
+}
+
+.crop-zoom strong {
+  font-size: 9px;
+  text-align: right;
+}
+
+.image-crop-dialog > footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
+  margin-top: 18px;
+}
+
 .upload-dialog {
   width: min(850px, 100%);
   max-height: calc(100dvh - 40px);
