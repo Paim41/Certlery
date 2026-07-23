@@ -19,9 +19,9 @@ export default async function GalleryPage() {
   const settings = await getGallerySettings();
   if (isCertificateStorageConfigured()) {
     try {
-      published = (await listCertificates()).filter(
-        (certificate) => certificate.visibility === "public",
-      );
+      published = (await listCertificates())
+        .filter((certificate) => certificate.visibility === "public")
+        .map((certificate) => ({ ...certificate, ownerUsername: undefined }));
     } catch (error) {
       console.error("Public certificate gallery error", error);
     }

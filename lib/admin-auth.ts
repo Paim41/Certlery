@@ -55,6 +55,11 @@ function configuredAccounts() {
   return accounts;
 }
 
+export function getPrimaryAdminUsername() {
+  const legacyUsername = (process.env.ADMIN_USERNAME ?? "").trim();
+  return legacyUsername || configuredAccounts()[0]?.username || "";
+}
+
 function safeEqual(left: string, right: string) {
   const leftBuffer = Buffer.from(left);
   const rightBuffer = Buffer.from(right);

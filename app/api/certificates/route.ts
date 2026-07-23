@@ -36,20 +36,20 @@ const certificateInput = z.object({
 });
 
 export async function GET() {
-  const unauthorized = await requireAdmin();
-  if (unauthorized) return unauthorized;
+  const session = await getAdminSession();
+  if (!session) return adminRequired();
   if (!isCertificateStorageConfigured()) return storageUnavailable();
 
   try {
-    return Response.json({ certificates: await listCertificates() });
+    return Response.json({ certificates: await listCertificates(session.username) });
   } catch (error) {
     return storageError(error);
   }
 }
 
 export async function POST(request: Request) {
-  const unauthorized = await requireAdmin();
-  if (unauthorized) return unauthorized;
+  const session = await getAdminSession();
+  if (!session) return adminRequired();
   if (!isCertificateStorageConfigured()) return storageUnavailable();
 
   let form: FormData;
@@ -94,6 +94,7 @@ export async function POST(request: Request) {
   const data = parsed.data;
   const certificate: CertificateRecord = {
     id: crypto.randomUUID(),
+    ownerUsername: session.username,
     title: data.title,
     issuer: data.issuer,
     issueDate: data.issueDate,
@@ -125,11 +126,8 @@ export async function POST(request: Request) {
   }
 }
 
-async function requireAdmin() {
-  const session = await getAdminSession();
-  return session
-    ? null
-    : Response.json({ error: "Admin authentication required." }, { status: 401 });
+function adminRequired() {
+  return Response.json({ error: "Admin authentication required." }, { status: 401 });
 }
 
 function storageUnavailable() {

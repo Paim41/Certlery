@@ -33,7 +33,7 @@ export async function PATCH(
 
   const { id } = await context.params;
   try {
-    const certificate = await updateCertificate(id, parsed.data);
+    const certificate = await updateCertificate(id, parsed.data, session.username);
     if (!certificate) {
       return Response.json({ error: "Certificate not found." }, { status: 404 });
     }
@@ -61,7 +61,7 @@ export async function DELETE(
 
   const { id } = await context.params;
   try {
-    const deleted = await deleteCertificate(id);
+    const deleted = await deleteCertificate(id, session.username);
     if (!deleted) {
       return Response.json({ error: "Certificate not found." }, { status: 404 });
     }

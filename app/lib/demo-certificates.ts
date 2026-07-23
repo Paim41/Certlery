@@ -1,5 +1,6 @@
 export type CertificateRecord = {
   id: string;
+  ownerUsername?: string;
   title: string;
   issuer: string;
   issueDate: string;

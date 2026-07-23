@@ -20,7 +20,7 @@ export async function GET() {
   }
 
   try {
-    const certificates = (await listCertificates()).filter(
+    const certificates = (await listCertificates(session.username)).filter(
       (certificate) => certificate.fileUrl,
     );
     if (!certificates.length) {

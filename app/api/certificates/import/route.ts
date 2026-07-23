@@ -56,6 +56,7 @@ export async function POST(request: Request) {
               .filter(Boolean);
         return saveCertificateRecord({
           id: crypto.randomUUID(),
+          ownerUsername: session.username,
           title: row.title,
           issuer: row.issuer,
           issueDate: row.issueDate,

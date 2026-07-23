@@ -1,5 +1,6 @@
 import { getAdminSession } from "../../../../../lib/admin-auth";
 import {
+  certificateBelongsTo,
   isCertificateStorageConfigured,
   listCertificates,
 } from "../../../../../lib/certificate-store";
@@ -22,12 +23,15 @@ export async function GET(
     }
 
     const session = await getAdminSession();
-    if (certificate.visibility === "private" && !session) {
-      return Response.json({ error: "Admin authentication required." }, { status: 401 });
+    const isOwner = Boolean(
+      session && certificateBelongsTo(certificate, session.username),
+    );
+    if (certificate.visibility === "private" && !isOwner) {
+      return Response.json({ error: "Certificate file not found." }, { status: 404 });
     }
 
     const wantsDownload = new URL(request.url).searchParams.get("download") === "1";
-    if (wantsDownload && certificate.allowDownload === false && !session) {
+    if (wantsDownload && certificate.allowDownload === false && !isOwner) {
       return Response.json({ error: "Downloads are disabled for this certificate." }, { status: 403 });
     }
 

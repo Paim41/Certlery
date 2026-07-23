@@ -2,6 +2,7 @@ import "server-only";
 
 import { del, list, put, type ListBlobResultBlob } from "@vercel/blob";
 import type { CertificateRecord } from "../app/lib/demo-certificates";
+import { getPrimaryAdminUsername } from "./admin-auth";
 
 const RECORD_PREFIX = "certlery/records/";
 const FILE_PREFIX = "certlery/files/";
@@ -20,7 +21,7 @@ export function isCertificateStorageConfigured() {
   return Boolean(process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_STORE_ID);
 }
 
-export async function listCertificates(): Promise<CertificateRecord[]> {
+export async function listCertificates(ownerUsername?: string): Promise<CertificateRecord[]> {
   assertConfigured();
 
   const [entries, fileBlobs] = await Promise.all([
@@ -37,13 +38,20 @@ export async function listCertificates(): Promise<CertificateRecord[]> {
     }
   }
 
-  return [...latest.values()]
+  const certificates = [...latest.values()]
     .map(({ certificate }) => ({
       ...certificate,
+      ownerUsername: certificate.ownerUsername || getPrimaryAdminUsername() || undefined,
       fileSize: certificate.fileSize ?? (
         certificate.fileUrl ? fileSizes.get(certificate.fileUrl) : undefined
       ),
-    }))
+    }));
+
+  return certificates
+    .filter(
+      (certificate) =>
+        !ownerUsername || certificate.ownerUsername === ownerUsername,
+    )
     .sort((left, right) => {
       const leftTime = Date.parse(left.createdAt ?? left.issueDate);
       const rightTime = Date.parse(right.createdAt ?? right.issueDate);
@@ -108,6 +116,7 @@ export async function saveCertificateRecord(
 export async function updateCertificate(
   id: string,
   patch: Partial<CertificatePatch>,
+  ownerUsername: string,
 ): Promise<CertificateRecord | null> {
   assertConfigured();
 
@@ -118,10 +127,12 @@ export async function updateCertificate(
   const current = matches.reduce((latest, entry) => (
     recordTime(entry) > recordTime(latest) ? entry : latest
   ));
+  if (certificateOwner(current.certificate) !== ownerUsername) return null;
   const updated: CertificateRecord = {
     ...current.certificate,
     ...patch,
     id,
+    ownerUsername,
     updatedAt: new Date().toISOString(),
   };
 
@@ -133,12 +144,16 @@ export async function updateCertificate(
   return updated;
 }
 
-export async function deleteCertificate(id: string) {
+export async function deleteCertificate(id: string, ownerUsername: string) {
   assertConfigured();
 
   const entries = await readRecordEntries();
   const matches = entries.filter((entry) => entry.certificate.id === id);
   if (!matches.length) return false;
+  const current = matches.reduce((latest, entry) => (
+    recordTime(entry) > recordTime(latest) ? entry : latest
+  ));
+  if (certificateOwner(current.certificate) !== ownerUsername) return false;
 
   const targets = new Set(matches.map((entry) => entry.blob.url));
   for (const { certificate } of matches) {
@@ -146,6 +161,13 @@ export async function deleteCertificate(id: string) {
   }
   await del([...targets]);
   return true;
+}
+
+export function certificateBelongsTo(
+  certificate: CertificateRecord,
+  ownerUsername: string,
+) {
+  return certificateOwner(certificate) === ownerUsername;
 }
 
 async function writeRecord(certificate: CertificateRecord) {
@@ -216,6 +238,10 @@ function normalizeRecord(value: unknown): CertificateRecord | null {
     return null;
   }
   return record as CertificateRecord;
+}
+
+function certificateOwner(certificate: CertificateRecord) {
+  return certificate.ownerUsername || getPrimaryAdminUsername();
 }
 
 function sanitizeFileName(name: string) {
