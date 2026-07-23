@@ -13,10 +13,46 @@ type AdminSession = {
 
 function credentials() {
   return {
-    username: process.env.ADMIN_USERNAME ?? "",
-    password: process.env.ADMIN_PASSWORD ?? "",
+    accounts: configuredAccounts(),
     secret: process.env.ADMIN_SESSION_SECRET ?? "",
   };
+}
+
+function configuredAccounts() {
+  const accounts: { username: string; password: string }[] = [];
+  const raw = process.env.ADMIN_ACCOUNTS;
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (Array.isArray(parsed)) {
+        for (const value of parsed) {
+          if (
+            value &&
+            typeof value === "object" &&
+            typeof (value as { username?: unknown }).username === "string" &&
+            typeof (value as { password?: unknown }).password === "string"
+          ) {
+            const username = (value as { username: string }).username.trim();
+            const password = (value as { password: string }).password;
+            if (username && password.length >= 12) accounts.push({ username, password });
+          }
+        }
+      }
+    } catch {
+      // A malformed ADMIN_ACCOUNTS value should not disable the legacy login.
+    }
+  }
+
+  const username = (process.env.ADMIN_USERNAME ?? "").trim();
+  const password = process.env.ADMIN_PASSWORD ?? "";
+  if (
+    username &&
+    password.length >= 12 &&
+    !accounts.some((account) => account.username === username)
+  ) {
+    accounts.push({ username, password });
+  }
+  return accounts;
 }
 
 function safeEqual(left: string, right: string) {
@@ -57,14 +93,17 @@ function decodeSession(value: string, secret: string): AdminSession | null {
 }
 
 export function isAdminConfigured() {
-  const { username, password, secret } = credentials();
-  return username.length > 0 && password.length >= 12 && secret.length >= 32;
+  const { accounts, secret } = credentials();
+  return accounts.length > 0 && secret.length >= 32;
 }
 
 export function verifyAdminCredentials(username: string, password: string) {
   if (!isAdminConfigured()) return false;
   const configured = credentials();
-  return safeEqual(username, configured.username) && safeEqual(password, configured.password);
+  return configured.accounts.some(
+    (account) =>
+      safeEqual(username, account.username) && safeEqual(password, account.password),
+  );
 }
 
 export async function createAdminSession(username: string) {
@@ -98,4 +137,3 @@ export async function getAdminSession(): Promise<AdminSession | null> {
   if (!value) return null;
   return decodeSession(value, credentials().secret);
 }
-

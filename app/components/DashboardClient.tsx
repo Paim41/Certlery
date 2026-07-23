@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import Image from "next/image";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
@@ -12,6 +13,7 @@ import {
   ArrowUpDown,
   Bell,
   CalendarClock,
+  Camera,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -22,7 +24,6 @@ import {
   FileCheck2,
   FileJson,
   Filter,
-  FolderKanban,
   Globe2,
   Grid2X2,
   Import,
@@ -51,6 +52,7 @@ import {
   ZoomOut,
 } from "lucide-react";
 import type { CertificateRecord } from "../lib/demo-certificates";
+import type { AdminProfile } from "../lib/admin-profile";
 import {
   defaultGallerySettings,
   type GallerySettings,
@@ -61,7 +63,6 @@ import { CertificateArtwork } from "./CertificateArtwork";
 type WorkspacePage =
   | "overview"
   | "certificates"
-  | "collections"
   | "featured"
   | "expiring"
   | "archived"
@@ -90,7 +91,6 @@ type UploadValues = z.infer<typeof uploadSchema>;
 const navigation: { id: WorkspacePage; label: string; icon: typeof LayoutDashboard }[] = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
   { id: "certificates", label: "My certificates", icon: FileCheck2 },
-  { id: "collections", label: "Collections", icon: FolderKanban },
   { id: "featured", label: "Featured", icon: Star },
   { id: "expiring", label: "Expiring soon", icon: CalendarClock },
   { id: "archived", label: "Archived", icon: Archive },
@@ -116,8 +116,14 @@ export function DashboardClient({
   const [toast, setToast] = useState<string | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [profileEditorOpen, setProfileEditorOpen] = useState(false);
+  const [adminProfile, setAdminProfile] = useState<AdminProfile>({
+    username: userName,
+    displayName: userName,
+  });
+  const displayName = adminProfile.displayName || userName;
   const profileInitials =
-    userName
+    displayName
       .split(/\s+/)
       .filter(Boolean)
       .slice(0, 2)
@@ -126,6 +132,24 @@ export function DashboardClient({
   const totalStorageBytes = certificates.reduce(
     (total, certificate) => total + (certificate.fileSize ?? 0),
     0,
+  );
+  const notify = useCallback((message: string) => {
+    setToast(message);
+    window.setTimeout(() => setToast(null), 3200);
+  }, []);
+  const expiringSoon = useMemo(
+    () =>
+      certificates
+        .filter((certificate) => {
+          const days = daysUntilExpiration(certificate);
+          return days !== null && days >= 0 && days <= 90;
+        })
+        .sort(
+          (left, right) =>
+            (daysUntilExpiration(left) ?? Number.MAX_SAFE_INTEGER) -
+            (daysUntilExpiration(right) ?? Number.MAX_SAFE_INTEGER),
+        ),
+    [certificates],
   );
 
   useEffect(() => {
@@ -148,6 +172,23 @@ export function DashboardClient({
           notify(error instanceof Error ? error.message : "Your gallery could not be refreshed.");
         }
       });
+    return () => {
+      active = false;
+    };
+  }, [notify]);
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/admin/profile")
+      .then(async (response) => {
+        const payload = (await response.json()) as {
+          profile?: AdminProfile;
+          error?: string;
+        };
+        if (!response.ok || !payload.profile) throw new Error(payload.error);
+        if (active) setAdminProfile(payload.profile);
+      })
+      .catch(() => undefined);
     return () => {
       active = false;
     };
@@ -175,11 +216,6 @@ export function DashboardClient({
   function navigate(destination: WorkspacePage) {
     setPage(destination);
     setSidebarOpen(false);
-  }
-
-  function notify(message: string) {
-    setToast(message);
-    window.setTimeout(() => setToast(null), 3200);
   }
 
   function toggleSelected(id: string) {
@@ -242,7 +278,9 @@ export function DashboardClient({
       notify("Set this certificate to Public or Unlisted before sharing it.");
       return;
     }
-    const url = `${window.location.origin}/api/certificates/${encodeURIComponent(certificate.id)}/file`;
+    const url = certificate.fileUrl
+      ? `${window.location.origin}/api/certificates/${encodeURIComponent(certificate.id)}/file`
+      : `${window.location.origin}/gallery`;
     if (navigator.share) {
       await navigator.share({
         title: certificate.title,
@@ -256,6 +294,10 @@ export function DashboardClient({
   }
 
   function downloadCertificate(certificate: CertificateRecord) {
+    if (!certificate.fileUrl) {
+      notify("This imported record does not have an original file yet.");
+      return;
+    }
     const anchor = document.createElement("a");
     anchor.href = `/api/certificates/${certificate.id}/file?download=1`;
     anchor.download = certificate.fileName ?? certificate.title;
@@ -289,7 +331,7 @@ export function DashboardClient({
           {navigation.map(({ id, label, icon: Icon }) => (
             <button key={id} className={page === id ? "active" : ""} onClick={() => navigate(id)}>
               <Icon size={18} /><span>{label}</span>
-              {id === "expiring" && <small>2</small>}
+              {id === "expiring" && expiringSoon.length > 0 && <small>{expiringSoon.length}</small>}
             </button>
           ))}
         </nav>
@@ -299,11 +341,12 @@ export function DashboardClient({
           <button onClick={() => navigate("storage")}>Manage storage</button>
         </div>
         <div className={`sidebar-profile ${profileMenuOpen ? "menu-open" : ""}`}>
-          <span className="avatar">{profileInitials}</span>
-          <span><strong>{userName}</strong><small>Personal gallery</small></span>
+          <span className="avatar">{adminProfile.avatarUrl ? <Image src={adminProfile.avatarUrl} alt="" width={35} height={35} unoptimized /> : profileInitials}</span>
+          <span><strong>{displayName}</strong><small>@{userName}</small></span>
           <button className="sidebar-profile-button" onClick={() => setProfileMenuOpen((current) => !current)} aria-expanded={profileMenuOpen} aria-haspopup="menu" aria-label="Open admin profile menu"><MoreHorizontal size={18} /></button>
           {profileMenuOpen && (
             <div className="sidebar-profile-menu" role="menu">
+              <button role="menuitem" onClick={() => { setProfileEditorOpen(true); setProfileMenuOpen(false); }}><Camera size={15} /> Edit admin profile</button>
               <button role="menuitem" onClick={() => { navigate("public"); setProfileMenuOpen(false); }}><Globe2 size={15} /> Public gallery</button>
               <button role="menuitem" onClick={() => { navigate("storage"); setProfileMenuOpen(false); }}><FileArchive size={15} /> Manage storage</button>
               <button role="menuitem" onClick={() => { navigate("settings"); setProfileMenuOpen(false); }}><Settings size={15} /> Settings</button>
@@ -338,7 +381,7 @@ export function DashboardClient({
           {page === "overview" && (
             <Overview
               certificates={certificates}
-              userName={userName}
+              userName={displayName}
               onAdd={() => setUploadOpen(true)}
               onView={setViewer}
               onNavigate={navigate}
@@ -363,8 +406,7 @@ export function DashboardClient({
               onDelete={removeCertificates}
             />
           )}
-          {page === "collections" && <Collections certificates={certificates} onNotify={notify} />}
-          {page === "expiring" && <Expiring certificates={certificates} onView={setViewer} />}
+          {page === "expiring" && <Expiring certificates={expiringSoon} onView={setViewer} />}
           {page === "public" && (
             <PublicSettings
               certificates={certificates}
@@ -380,7 +422,13 @@ export function DashboardClient({
               onDownload={downloadCertificate}
             />
           )}
-          {page === "import" && <ImportExport onNotify={notify} />}
+          {page === "import" && (
+            <ImportExport
+              certificates={certificates}
+              onImported={(rows) => setCertificates((current) => [...rows, ...current])}
+              onNotify={notify}
+            />
+          )}
           {page === "settings" && <SettingsPanel dark={dark} setDark={setDark} onNotify={notify} />}
         </main>
       </div>
@@ -405,6 +453,17 @@ export function DashboardClient({
                 ? "Certificate published to the public gallery."
                 : "Certificate saved successfully.",
             );
+          }}
+        />
+      )}
+      {profileEditorOpen && (
+        <AdminProfileDialog
+          profile={adminProfile}
+          onClose={() => setProfileEditorOpen(false)}
+          onSaved={(profile) => {
+            setAdminProfile(profile);
+            setProfileEditorOpen(false);
+            notify("Admin profile updated.");
           }}
         />
       )}
@@ -438,6 +497,16 @@ function Overview({
   const firstName = userName.split(" ")[0] || userName;
   const publicCount = certificates.filter((certificate) => certificate.visibility === "public").length;
   const featured = certificates.filter((certificate) => certificate.featured).slice(0, 3);
+  const expiring = certificates
+    .filter((certificate) => {
+      const days = daysUntilExpiration(certificate);
+      return days !== null && days >= 0 && days <= 90;
+    })
+    .sort(
+      (left, right) =>
+        (daysUntilExpiration(left) ?? Number.MAX_SAFE_INTEGER) -
+        (daysUntilExpiration(right) ?? Number.MAX_SAFE_INTEGER),
+    );
   return (
     <>
       <div className="workspace-title">
@@ -447,7 +516,7 @@ function Overview({
       <div className="stat-row">
         <article><span className="stat-icon"><FileCheck2 size={19} /></span><div><small>Total certificates</small><strong>{certificates.length}</strong><button onClick={() => onNavigate("certificates")}>View all</button></div></article>
         <article><span className="stat-icon"><Globe2 size={19} /></span><div><small>Public certificates</small><strong>{publicCount}</strong><button onClick={() => onNavigate("public")}>Manage gallery</button></div></article>
-        <article><span className="stat-icon warning"><CalendarClock size={19} /></span><div><small>Expiring soon</small><strong>2</strong><button onClick={() => onNavigate("expiring")}>Review dates</button></div></article>
+        <article><span className="stat-icon warning"><CalendarClock size={19} /></span><div><small>Expiring soon</small><strong>{expiring.length}</strong><button onClick={() => onNavigate("expiring")}>Review dates</button></div></article>
         <article><span className="stat-icon"><Star size={19} /></span><div><small>Featured</small><strong>{certificates.filter((c) => c.featured).length}</strong><button onClick={() => onNavigate("featured")}>Edit selection</button></div></article>
       </div>
       <div className="dashboard-columns">
@@ -473,7 +542,12 @@ function Overview({
       </div>
       <section className="panel renewal-panel">
         <span className="renewal-icon"><CalendarClock size={22} /></span>
-        <div><h2>Two credentials need attention</h2><p>Data Analytics Workshop expires in 38 days. Cybersecurity Fundamentals follows in 61 days.</p></div>
+        <div>
+          <h2>{expiring.length ? `${expiring.length} credential${expiring.length === 1 ? "" : "s"} need attention` : "No credentials expire soon"}</h2>
+          <p>{expiring.length
+            ? expiring.slice(0, 2).map((certificate) => `${certificate.title} expires in ${daysUntilExpiration(certificate)} days`).join(". ") + "."
+            : "Nothing is scheduled to expire in the next 90 days."}</p>
+        </div>
         <button className="button button-secondary" onClick={() => onNavigate("expiring")}>Review expiration dates</button>
       </section>
     </>
@@ -540,7 +614,7 @@ function CertificateLibrary({
         </div>
       </div>
       {filter !== "all" && <div className="filter-chips"><span>{filter}<button onClick={() => setFilter("all")} aria-label={`Remove ${filter} filter`}><X size={13} /></button></span><button onClick={() => setFilter("all")}>Clear all</button></div>}
-      {selected.length > 0 && <div className="bulk-bar"><span>{selected.length} selected</span><button onClick={() => onNotify("Selected certificates added to a collection.")}><FolderKanban size={16} /> Add to collection</button><button onClick={() => onNotify("Selected certificates archived. Undo is available for 30 seconds.")}><Archive size={16} /> Archive</button><button className="danger" onClick={() => void onDelete(selected)}><Trash2 size={16} /> Delete</button></div>}
+      {selected.length > 0 && <div className="bulk-bar"><span>{selected.length} selected</span><button onClick={() => onNotify("Selected certificates archived. Undo is available for 30 seconds.")}><Archive size={16} /> Archive</button><button className="danger" onClick={() => void onDelete(selected)}><Trash2 size={16} /> Delete</button></div>}
       {certificates.length ? (
         <div className={`certificate-grid view-${view}`}>
           {certificates.map((certificate) => (
@@ -564,7 +638,7 @@ function CertificateLibrary({
                       <div className="card-action-menu">
                         <button onClick={() => { onView(certificate); setActionMenu(null); }}><Eye size={15} /> View certificate</button>
                         <button onClick={() => { void onShare(certificate); setActionMenu(null); }}><Share2 size={15} /> Share link</button>
-                        <button onClick={() => { onDownload(certificate); setActionMenu(null); }}><Download size={15} /> Download original</button>
+                        {certificate.fileUrl && <button onClick={() => { onDownload(certificate); setActionMenu(null); }}><Download size={15} /> Download original</button>}
                         <button className="danger" onClick={() => { void onDelete([certificate.id]); setActionMenu(null); }}><Trash2 size={15} /> Delete</button>
                       </div>
                     )}
@@ -584,7 +658,7 @@ function CertificateLibrary({
                 <div className="list-only list-actions">
                   <button onClick={() => onView(certificate)}><Eye size={16} /> View</button>
                   <button onClick={() => void onShare(certificate)}><Share2 size={16} /> Share</button>
-                  <button onClick={() => onDownload(certificate)}><Download size={16} /> Download</button>
+                  {certificate.fileUrl && <button onClick={() => onDownload(certificate)}><Download size={16} /> Download</button>}
                 </div>
               </div>
             </article>
@@ -597,44 +671,25 @@ function CertificateLibrary({
   );
 }
 
-function Collections({ certificates, onNotify }: { certificates: CertificateRecord[]; onNotify(message: string): void }) {
-  const groups = Array.from(new Set(certificates.map((certificate) => certificate.collection).filter(Boolean))) as string[];
-  return (
-    <>
-      <div className="workspace-title"><div><span className="eyebrow">Collections</span><h1>Organize by chapter.</h1><p>Curate credentials for roles, disciplines, and milestones.</p></div><button className="button button-primary" onClick={() => onNotify("New collection ready to name.")}><Plus size={17} /> New collection</button></div>
-      <div className="collection-grid">
-        {groups.map((group, index) => {
-          const items = certificates.filter((certificate) => certificate.collection === group);
-          return (
-            <article className="collection-card" key={group}>
-              <div className="collection-cover">
-                {items.slice(0, 3).map((certificate) => <CertificateArtwork key={certificate.id} certificate={certificate} compact />)}
-              </div>
-              <div><span className="collection-number">0{index + 1}</span><h2>{group}</h2><p>{items.length} certificate{items.length === 1 ? "" : "s"}</p><div><span><Lock size={13} /> Private</span><small>Updated this month</small></div></div>
-            </article>
-          );
-        })}
-      </div>
-    </>
-  );
-}
-
 function Expiring({ certificates, onView }: { certificates: CertificateRecord[]; onView(certificate: CertificateRecord): void }) {
-  const expiring = certificates.filter((certificate) => certificate.expirationDate);
   return (
     <>
       <div className="workspace-title"><div><span className="eyebrow">Expiration tracking</span><h1>Renew with time to spare.</h1><p>Keep important credentials active and visible.</p></div></div>
       <div className="panel expiry-table">
         <div className="table-head"><span>Certificate</span><span>Expiration date</span><span>Remaining</span><span>Reminder</span><span /></div>
-        {expiring.map((certificate, index) => (
+        {certificates.map((certificate) => {
+          const days = daysUntilExpiration(certificate) ?? 0;
+          return (
           <div className="table-row" key={certificate.id}>
             <div><span className="table-thumb"><CertificateArtwork certificate={certificate} compact /></span><span><strong>{certificate.title}</strong><small>{certificate.issuer}</small></span></div>
             <span>{new Date(certificate.expirationDate!).toLocaleDateString("en", { day: "numeric", month: "short", year: "numeric" })}</span>
-            <span className={`days-badge ${index === 0 ? "urgent" : ""}`}>{index === 0 ? "38 days" : "61 days"}</span>
+            <span className={`days-badge ${days <= 30 ? "urgent" : ""}`}>{days} day{days === 1 ? "" : "s"}</span>
             <span><Bell size={15} /> 30 days before</span>
             <button onClick={() => onView(certificate)}>View</button>
           </div>
-        ))}
+          );
+        })}
+        {!certificates.length && <div className="empty-state compact-empty"><CalendarClock size={24} /><h2>No upcoming expirations.</h2><p>Certificates expiring within 90 days will appear here.</p></div>}
       </div>
     </>
   );
@@ -654,7 +709,9 @@ function PublicSettings({
 }) {
   const [settings, setSettings] = useState<GallerySettings>(defaultGallerySettings);
   const [savingProfile, setSavingProfile] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const galleryImageInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     let active = true;
@@ -699,6 +756,32 @@ function PublicSettings({
     }
   }
 
+  async function uploadProfileImage(file: File) {
+    setUploadingImage(true);
+    try {
+      const form = new FormData();
+      form.set("file", file);
+      const response = await fetch("/api/gallery-settings", {
+        method: "POST",
+        body: form,
+      });
+      const payload = (await response.json()) as {
+        settings?: GallerySettings;
+        error?: string;
+      };
+      if (!response.ok || !payload.settings) {
+        throw new Error(payload.error ?? "The gallery profile image could not be saved.");
+      }
+      setSettings(payload.settings);
+      onNotify("Public gallery profile image updated.");
+    } catch (error) {
+      onNotify(error instanceof Error ? error.message : "The profile image could not be saved.");
+    } finally {
+      setUploadingImage(false);
+      if (galleryImageInput.current) galleryImageInput.current.value = "";
+    }
+  }
+
   async function changeCertificate(
     certificate: CertificateRecord,
     patch: Partial<Pick<CertificateRecord, "visibility" | "featured" | "allowDownload">>,
@@ -721,12 +804,24 @@ function PublicSettings({
         <section className="panel settings-card">
           <h2>Profile details</h2>
           <p>These details appear at the top of the public gallery.</p>
+          <div className="profile-image-editor">
+            <span className="profile-image-preview">
+              <Image src={settings.profileImageUrl ?? "/certlery-showcase-profile.png"} alt="Public gallery profile" width={64} height={64} unoptimized={Boolean(settings.profileImageUrl)} />
+            </span>
+            <div><strong>Profile picture</strong><small>PNG, JPG, or WebP, up to 5 MB.</small><button className="button button-secondary button-small" disabled={uploadingImage} onClick={() => galleryImageInput.current?.click()}><Camera size={15} /> {uploadingImage ? "Uploading..." : "Change picture"}</button></div>
+            <input ref={galleryImageInput} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadProfileImage(file); }} />
+          </div>
           <div className="form-grid">
             <label>Gallery title<input value={settings.title} onChange={(event) => setSettings((current) => ({ ...current, title: event.target.value }))} /></label>
             <label>Professional headline<input value={settings.headline} onChange={(event) => setSettings((current) => ({ ...current, headline: event.target.value }))} /></label>
+            <label>Profile label<input value={settings.kicker} onChange={(event) => setSettings((current) => ({ ...current, kicker: event.target.value }))} /></label>
+            <label>Contact button text<input value={settings.contactLabel} onChange={(event) => setSettings((current) => ({ ...current, contactLabel: event.target.value }))} /></label>
+            <label>Contact email<input type="email" placeholder="you@example.com" value={settings.contactEmail} onChange={(event) => setSettings((current) => ({ ...current, contactEmail: event.target.value }))} /></label>
+            <label>GitHub profile URL<input type="url" placeholder="https://github.com/username" value={settings.githubUrl} onChange={(event) => setSettings((current) => ({ ...current, githubUrl: event.target.value }))} /></label>
             <label className="full-field">Biography<textarea value={settings.bio} onChange={(event) => setSettings((current) => ({ ...current, bio: event.target.value }))} /></label>
           </div>
           <ToggleInputSimple label="Show certificate count" copy="Display the published total on your profile." checked={settings.showCertificateCount} onChange={(checked) => setSettings((current) => ({ ...current, showCertificateCount: checked }))} />
+          <ToggleInputSimple label="Show contact button" copy="Display the contact action on the public profile." checked={settings.showContactButton} onChange={(checked) => setSettings((current) => ({ ...current, showContactButton: checked }))} />
           <button className="button button-primary full-button" disabled={savingProfile} onClick={saveProfile}>{savingProfile ? "Saving..." : "Save profile"}</button>
         </section>
         <aside className="panel settings-card gallery-summary-card">
@@ -780,7 +875,7 @@ function StorageManager({
             <span title={certificate.fileName}>{certificate.fileName ?? "Certificate file"}</span>
             <span>{certificate.fileSize ? formatBytes(certificate.fileSize) : "Unknown"}</span>
             <VisibilityBadge visibility={certificate.visibility} />
-            <div><button onClick={() => onDownload(certificate)}><Download size={15} /> Download</button><button className="danger" onClick={() => void onDelete([certificate.id])}><Trash2 size={15} /> Delete</button></div>
+            <div>{certificate.fileUrl && <button onClick={() => onDownload(certificate)}><Download size={15} /> Download</button>}<button className="danger" onClick={() => void onDelete([certificate.id])}><Trash2 size={15} /> Delete</button></div>
           </article>
         )) : <div className="empty-state"><FileArchive size={27} /><h2>No stored certificate files.</h2><p>Uploaded files will appear here.</p></div>}
       </section>
@@ -788,18 +883,163 @@ function StorageManager({
   );
 }
 
-function ImportExport({ onNotify }: { onNotify(message: string): void }) {
+function ImportExport({
+  certificates,
+  onImported,
+  onNotify,
+}: {
+  certificates: CertificateRecord[];
+  onImported(certificates: CertificateRecord[]): void;
+  onNotify(message: string): void;
+}) {
+  const csvInput = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState<"import" | "archive" | null>(null);
+
+  async function importCsv(file: File) {
+    setBusy("import");
+    try {
+      const rows = parseCsv(await file.text());
+      if (!rows.length) throw new Error("The CSV file does not contain any certificate rows.");
+      const response = await fetch("/api/certificates/import", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          rows: rows.map((row) => ({
+            title: row.title,
+            issuer: row.issuer,
+            issueDate: row.issueDate,
+            expirationDate: row.expirationDate ?? "",
+            credentialId: row.credentialId ?? "",
+            verificationUrl: row.verificationUrl ?? "",
+            category: row.category || "Imported",
+            skills: row.skills ?? "",
+            orientation: validOrientation(row.orientation),
+            visibility: validVisibility(row.visibility),
+            featured: csvBoolean(row.featured),
+            allowDownload: row.allowDownload === undefined ? true : csvBoolean(row.allowDownload),
+          })),
+        }),
+      });
+      const payload = (await response.json()) as {
+        certificates?: CertificateRecord[];
+        error?: string;
+      };
+      if (!response.ok || !payload.certificates) {
+        throw new Error(payload.error ?? "The CSV could not be imported.");
+      }
+      onImported(payload.certificates);
+      onNotify(`${payload.certificates.length} certificate record${payload.certificates.length === 1 ? "" : "s"} imported.`);
+    } catch (error) {
+      onNotify(error instanceof Error ? error.message : "The CSV could not be imported.");
+    } finally {
+      setBusy(null);
+      if (csvInput.current) csvInput.current.value = "";
+    }
+  }
+
+  function exportCsv() {
+    const headers = [
+      "title",
+      "issuer",
+      "issueDate",
+      "expirationDate",
+      "credentialId",
+      "verificationUrl",
+      "category",
+      "skills",
+      "orientation",
+      "visibility",
+      "featured",
+      "allowDownload",
+      "fileName",
+    ];
+    const csv = [
+      headers.join(","),
+      ...certificates.map((certificate) =>
+        headers
+          .map((header) => {
+            const value =
+              header === "skills"
+                ? certificate.skills.join(";")
+                : String(certificate[header as keyof CertificateRecord] ?? "");
+            return csvCell(value);
+          })
+          .join(","),
+      ),
+    ].join("\r\n");
+    downloadBlob(
+      new Blob([csv], { type: "text/csv;charset=utf-8" }),
+      "certlery-certificates.csv",
+    );
+    onNotify("Certificate metadata exported.");
+  }
+
+  async function exportJson() {
+    try {
+      const response = await fetch("/api/gallery-settings");
+      const payload = (await response.json().catch(() => null)) as {
+        settings?: GallerySettings;
+      } | null;
+      downloadBlob(
+        new Blob(
+          [
+            JSON.stringify(
+              {
+                exportedAt: new Date().toISOString(),
+                version: 1,
+                gallerySettings: payload?.settings ?? null,
+                certificates,
+              },
+              null,
+              2,
+            ),
+          ],
+          { type: "application/json" },
+        ),
+        "certlery-backup.json",
+      );
+      onNotify("JSON backup downloaded.");
+    } catch {
+      onNotify("The JSON backup could not be created.");
+    }
+  }
+
+  async function downloadArchive() {
+    setBusy("archive");
+    try {
+      const response = await fetch("/api/certificates/archive");
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(payload?.error ?? "The file archive could not be created.");
+      }
+      downloadBlob(await response.blob(), "certlery-certificate-files.zip");
+      onNotify("Certificate file archive downloaded.");
+    } catch (error) {
+      onNotify(error instanceof Error ? error.message : "The file archive could not be created.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   const cards = [
-    { icon: Import, title: "Import from CSV", copy: "Map columns, detect duplicates, and preview records before import.", action: "Choose CSV file" },
-    { icon: ArrowDownToLine, title: "Export metadata", copy: "Download your complete certificate index as a clean CSV file.", action: "Export CSV" },
-    { icon: FileJson, title: "Back up all data", copy: "Create a portable JSON backup of profiles, collections, and metadata.", action: "Download JSON" },
-    { icon: FileArchive, title: "Download certificate files", copy: "Prepare your selected original files as a single archive.", action: "Create archive" },
+    { kind: "import", icon: Import, title: "Import from CSV", copy: "Import title, issuer, dates, visibility, and other certificate metadata.", action: busy === "import" ? "Importing..." : "Choose CSV file", disabled: busy !== null },
+    { kind: "csv", icon: ArrowDownToLine, title: "Export metadata", copy: "Download your complete certificate index as a clean CSV file.", action: "Export CSV", disabled: !certificates.length },
+    { kind: "json", icon: FileJson, title: "Back up all data", copy: "Create a portable JSON backup of your certificate metadata.", action: "Download JSON", disabled: !certificates.length },
+    { kind: "archive", icon: FileArchive, title: "Download certificate files", copy: "Package every uploaded original file as a single ZIP archive.", action: busy === "archive" ? "Creating archive..." : "Create archive", disabled: busy !== null || !certificates.some((certificate) => certificate.fileUrl) },
   ];
+
+  function runTransfer(kind: string) {
+    if (kind === "import") csvInput.current?.click();
+    if (kind === "csv") exportCsv();
+    if (kind === "json") void exportJson();
+    if (kind === "archive") void downloadArchive();
+  }
   return (
     <>
       <div className="workspace-title"><div><span className="eyebrow">Import and export</span><h1>Your data stays portable.</h1><p>Bring records in, keep a backup, or take your entire collection with you.</p></div></div>
+      <input ref={csvInput} type="file" accept=".csv,text/csv" hidden onChange={(event) => { const file = event.target.files?.[0]; if (file) void importCsv(file); }} />
       <div className="transfer-grid">
-        {cards.map(({ icon: Icon, title, copy, action }) => <article className="panel transfer-card" key={title}><span><Icon size={22} /></span><h2>{title}</h2><p>{copy}</p><button className="button button-secondary" onClick={() => onNotify(`${action} is ready.`)}>{action}</button></article>)}
+        {cards.map(({ kind, icon: Icon, title, copy, action, disabled }) => <article className="panel transfer-card" key={title}><span><Icon size={22} /></span><h2>{title}</h2><p>{copy}</p><button className="button button-secondary" disabled={disabled} onClick={() => runTransfer(kind)}>{action}</button></article>)}
       </div>
     </>
   );
@@ -814,6 +1054,75 @@ function SettingsPanel({ dark, setDark, onNotify }: { dark: boolean; setDark(val
         <aside className="panel settings-card"><h2>Notifications</h2><p>Decide what deserves your attention.</p><Toggle label="Expiration reminders" copy="Receive alerts before credentials expire." checked /><Toggle label="Account security" copy="Important sign-in and account updates." checked /><Toggle label="Certificate activity" copy="Changes to shared links and gallery content." /><button className="button button-primary full-button" onClick={() => onNotify("Notification preferences saved.")}>Save preferences</button></aside>
       </div>
     </>
+  );
+}
+
+function AdminProfileDialog({
+  profile,
+  onClose,
+  onSaved,
+}: {
+  profile: AdminProfile;
+  onClose(): void;
+  onSaved(profile: AdminProfile): void;
+}) {
+  const [displayName, setDisplayName] = useState(profile.displayName);
+  const [file, setFile] = useState<File | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const previewUrl = useMemo(() => (file ? URL.createObjectURL(file) : profile.avatarUrl), [file, profile.avatarUrl]);
+
+  useEffect(() => {
+    return () => {
+      if (file && previewUrl) URL.revokeObjectURL(previewUrl);
+    };
+  }, [file, previewUrl]);
+
+  async function save() {
+    setSaving(true);
+    setError(null);
+    try {
+      const form = new FormData();
+      form.set("displayName", displayName);
+      if (file) form.set("file", file);
+      const response = await fetch("/api/admin/profile", { method: "POST", body: form });
+      const payload = (await response.json()) as {
+        profile?: AdminProfile;
+        error?: string;
+      };
+      if (!response.ok || !payload.profile) {
+        throw new Error(payload.error ?? "The admin profile could not be saved.");
+      }
+      onSaved(payload.profile);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "The admin profile could not be saved.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const initials =
+    displayName
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase())
+      .join("") || "CA";
+
+  return (
+    <div className="modal-backdrop profile-modal-backdrop" role="presentation" onClick={onClose}>
+      <section className="admin-profile-dialog panel" role="dialog" aria-modal="true" aria-labelledby="admin-profile-title" onClick={(event) => event.stopPropagation()}>
+        <header><div><span className="eyebrow">Admin account</span><h2 id="admin-profile-title">Edit your profile</h2><p>This picture and name appear only in your private admin workspace.</p></div><button className="icon-button" onClick={onClose} aria-label="Close profile editor"><X size={19} /></button></header>
+        <div className="admin-profile-photo">
+          <span>{previewUrl ? <Image src={previewUrl} alt="Admin profile preview" width={78} height={78} unoptimized /> : initials}</span>
+          <label className="button button-secondary"><Camera size={16} /> Choose picture<input type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(event) => setFile(event.target.files?.[0] ?? null)} /></label>
+          <small>PNG, JPG, or WebP, up to 5 MB.</small>
+        </div>
+        <label className="profile-name-field">Display name<input value={displayName} maxLength={80} onChange={(event) => setDisplayName(event.target.value)} /><small>Login username: {profile.username}</small></label>
+        {error && <div className="upload-error" role="alert"><CircleAlert size={16} /> {error}</div>}
+        <footer><button className="button button-secondary" onClick={onClose}>Cancel</button><button className="button button-primary" disabled={saving || displayName.trim().length < 2} onClick={() => void save()}>{saving ? "Saving..." : "Save profile"}</button></footer>
+      </section>
+    </div>
   );
 }
 
@@ -1010,7 +1319,7 @@ function Viewer({
 
   return (
     <div className="viewer" role="dialog" aria-modal="true" aria-label={`Viewing ${certificate.title}`}>
-      <header><button className="icon-button viewer-close" onClick={onClose} aria-label="Close viewer"><X size={20} /></button><div><strong>{certificate.title}</strong><small>{certificate.issuer}</small></div><div className="viewer-actions"><button onClick={() => void onShare(certificate)}><Share2 size={17} /><span>Share</span></button><button onClick={() => onDownload(certificate)}><Download size={17} /><span>Download</span></button><button onClick={printCertificate}><Printer size={17} /><span>Print</span></button></div></header>
+      <header><button className="icon-button viewer-close" onClick={onClose} aria-label="Close viewer"><X size={20} /></button><div><strong>{certificate.title}</strong><small>{certificate.issuer}</small></div><div className="viewer-actions"><button onClick={() => void onShare(certificate)}><Share2 size={17} /><span>Share</span></button>{certificate.fileUrl && <button onClick={() => onDownload(certificate)}><Download size={17} /><span>Download</span></button>}{certificate.fileUrl && <button onClick={printCertificate}><Printer size={17} /><span>Print</span></button>}</div></header>
       <div className="viewer-body">
         <div className="viewer-stage">
           <div className="viewer-document" style={{ transform: `scale(${zoom}) rotate(${rotation}deg)` }}><CertificateArtwork certificate={certificate} /></div>
@@ -1023,7 +1332,9 @@ function Viewer({
 }
 
 function StatusBadge({ certificate }: { certificate: CertificateRecord }) {
-  if (certificate.expirationDate) return <span className="status-badge warning"><CalendarClock size={13} /> Expiring soon</span>;
+  const days = daysUntilExpiration(certificate);
+  if (days !== null && days < 0) return <span className="status-badge warning"><CalendarClock size={13} /> Expired</span>;
+  if (days !== null && days <= 90) return <span className="status-badge warning"><CalendarClock size={13} /> Expiring soon</span>;
   if (certificate.verification === "verified") return <span className="status-badge success"><ShieldCheck size={13} /> Link confirmed</span>;
   if (certificate.verification === "link") return <span className="status-badge"><Link2 size={13} /> Verification link</span>;
   return <span className="status-badge muted"><CircleAlert size={13} /> Unavailable</span>;
@@ -1076,7 +1387,7 @@ function inferOrientation(
 function readImageDimensions(file: File) {
   return new Promise<{ width: number; height: number }>((resolve, reject) => {
     const url = URL.createObjectURL(file);
-    const image = new Image();
+    const image = new window.Image();
     image.onload = () => {
       resolve({ width: image.naturalWidth, height: image.naturalHeight });
       URL.revokeObjectURL(url);
@@ -1087,4 +1398,100 @@ function readImageDimensions(file: File) {
     };
     image.src = url;
   });
+}
+
+function daysUntilExpiration(certificate: CertificateRecord) {
+  if (!certificate.expirationDate) return null;
+  const expiration = new Date(`${certificate.expirationDate}T23:59:59`);
+  if (!Number.isFinite(expiration.getTime())) return null;
+  return Math.ceil((expiration.getTime() - Date.now()) / 86_400_000);
+}
+
+function downloadBlob(blob: Blob, fileName: string) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function csvCell(value: string) {
+  return `"${value.replaceAll('"', '""')}"`;
+}
+
+function parseCsv(text: string) {
+  const records: string[][] = [];
+  let row: string[] = [];
+  let field = "";
+  let quoted = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index];
+    if (character === '"') {
+      if (quoted && text[index + 1] === '"') {
+        field += '"';
+        index += 1;
+      } else {
+        quoted = !quoted;
+      }
+    } else if (character === "," && !quoted) {
+      row.push(field);
+      field = "";
+    } else if ((character === "\n" || character === "\r") && !quoted) {
+      if (character === "\r" && text[index + 1] === "\n") index += 1;
+      row.push(field);
+      if (row.some((value) => value.trim())) records.push(row);
+      row = [];
+      field = "";
+    } else {
+      field += character;
+    }
+  }
+  row.push(field);
+  if (row.some((value) => value.trim())) records.push(row);
+  if (records.length < 2) return [];
+
+  const headers = records[0].map((header) => normalizedCsvHeader(header));
+  return records.slice(1).map((values) =>
+    Object.fromEntries(
+      headers.map((header, index) => [header, values[index]?.trim() ?? ""]),
+    ) as Record<string, string>,
+  );
+}
+
+function normalizedCsvHeader(value: string) {
+  const normalized = value.replace(/^\uFEFF/, "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+  const headers: Record<string, string> = {
+    title: "title",
+    certificatename: "title",
+    issuer: "issuer",
+    organization: "issuer",
+    issuedate: "issueDate",
+    expirationdate: "expirationDate",
+    expirydate: "expirationDate",
+    credentialid: "credentialId",
+    verificationurl: "verificationUrl",
+    category: "category",
+    skills: "skills",
+    orientation: "orientation",
+    visibility: "visibility",
+    featured: "featured",
+    allowdownload: "allowDownload",
+  };
+  return headers[normalized] ?? normalized;
+}
+
+function csvBoolean(value: string | undefined) {
+  return ["true", "1", "yes", "y"].includes((value ?? "").trim().toLowerCase());
+}
+
+function validOrientation(value: string | undefined): CertificateRecord["orientation"] {
+  return value === "portrait" || value === "square" ? value : "landscape";
+}
+
+function validVisibility(value: string | undefined): CertificateRecord["visibility"] {
+  return value === "public" || value === "unlisted" ? value : "private";
 }

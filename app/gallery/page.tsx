@@ -27,7 +27,7 @@ export default async function GalleryPage() {
     }
   }
 
-  const certificates = published.length ? published : demoCertificates;
+  const certificates = isCertificateStorageConfigured() ? published : demoCertificates;
 
   return <PublicGallery certificates={certificates} settings={settings} />;
 }

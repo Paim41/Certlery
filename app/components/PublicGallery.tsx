@@ -99,22 +99,32 @@ export function PublicGallery({
         <div className="cover-pattern" aria-hidden="true" />
         <div className="shell profile-shell">
           <div className="profile-avatar profile-avatar-image">
-            <Image
-              src="/certlery-showcase-profile.png"
-              alt="Certlery Showcase profile"
-              fill
-              sizes="(max-width: 680px) 80px, 105px"
-              priority
-            />
+            {settings.profileImageUrl ? (
+              <Image
+                src={settings.profileImageUrl}
+                alt={`${settings.title} profile`}
+                fill
+                sizes="(max-width: 680px) 80px, 105px"
+                unoptimized
+              />
+            ) : (
+              <Image
+                src="/certlery-showcase-profile.png"
+                alt="Certlery Showcase profile"
+                fill
+                sizes="(max-width: 680px) 80px, 105px"
+                priority
+              />
+            )}
           </div>
           <div className="profile-copy">
-            <span className="profile-kicker"><ShieldCheck size={15} /> Example public portfolio</span>
+            <span className="profile-kicker"><ShieldCheck size={15} /> {settings.kicker}</span>
             <h1>{settings.title}</h1>
             <p className="profile-headline">{settings.headline}</p>
             <p className="profile-bio">{settings.bio}</p>
             <div className="profile-meta"><span><Globe2 size={15} /> Public certificate gallery</span>{settings.showCertificateCount && <span><LinkIcon size={15} /> {publicCertificates.length} published credentials</span>}</div>
           </div>
-          <div className="profile-actions"><Link href="/#contact" className="button button-primary"><Mail size={16} /> Contact Certlery</Link><button className="icon-button" onClick={copyProfile} aria-label="Copy profile link"><Copy size={18} /></button></div>
+          <div className="profile-actions">{settings.showContactButton && <a href={settings.contactEmail ? `mailto:${settings.contactEmail}` : "/#contact"} className="button button-primary"><Mail size={16} /> {settings.contactLabel}</a>}<button className="icon-button" onClick={copyProfile} aria-label="Copy profile link"><Copy size={18} /></button></div>
         </div>
       </section>
 
@@ -158,14 +168,14 @@ export function PublicGallery({
           </div>
         </section>
 
-        <section className="public-contact">
+        {settings.showContactButton && <section className="public-contact">
           <span><BriefcaseBusiness size={22} /></span>
-          <div><h2>Want a portfolio like this?</h2><p>This page is a neutral example of the public layout available in Certlery.</p></div>
-          <Link href="/#contact" className="button button-primary" data-ripple><Mail size={16} /> Get in touch</Link>
-        </section>
+          <div><h2>Want to get in touch?</h2><p>Use the contact link provided by this gallery owner.</p></div>
+          <a href={settings.contactEmail ? `mailto:${settings.contactEmail}` : "/#contact"} className="button button-primary" data-ripple><Mail size={16} /> {settings.contactLabel}</a>
+        </section>}
       </section>
 
-      <footer className="public-footer"><div className="shell"><span>Built with <Brand compact /></span><p>Credential verification links are supplied by the profile owner.</p><a href="https://github.com/Paim41" target="_blank" rel="noreferrer"><Globe2 size={14} /> Paim41 on GitHub</a></div></footer>
+      <footer className="public-footer"><div className="shell"><span>Built with <Brand compact /></span><p>Credential verification links are supplied by the profile owner.</p>{settings.githubUrl && <a href={settings.githubUrl} target="_blank" rel="noreferrer"><Globe2 size={14} /> {githubLabel(settings.githubUrl)} on GitHub</a>}</div></footer>
       {preview && (
         <div className="quick-preview-backdrop" role="presentation" onClick={() => setPreview(null)}>
           <section className="quick-preview" role="dialog" aria-modal="true" aria-labelledby="quick-preview-title" onClick={(event) => event.stopPropagation()}>
@@ -194,4 +204,13 @@ export function PublicGallery({
       )}
     </main>
   );
+}
+
+function githubLabel(url: string) {
+  try {
+    const path = new URL(url).pathname.split("/").filter(Boolean);
+    return path[0] || "Profile";
+  } catch {
+    return "Profile";
+  }
 }

@@ -91,6 +91,20 @@ export async function saveCertificate(
   return completed;
 }
 
+export async function saveCertificateRecord(
+  certificate: CertificateRecord,
+): Promise<CertificateRecord> {
+  assertConfigured();
+  const now = new Date().toISOString();
+  const completed: CertificateRecord = {
+    ...certificate,
+    createdAt: certificate.createdAt ?? now,
+    updatedAt: now,
+  };
+  await writeRecord(completed);
+  return completed;
+}
+
 export async function updateCertificate(
   id: string,
   patch: Partial<CertificatePatch>,
