@@ -24,13 +24,17 @@ export async function generateMetadata(): Promise<Metadata> {
   return {
     metadataBase: new URL(origin),
     title: {
-      default: "Certlery — Your achievements, beautifully preserved",
+      default: "Certlery — Certificate Portfolio",
       template: "%s | Certlery",
     },
     description:
       "Upload, organize, verify, and showcase your certificates in one refined professional gallery.",
     applicationName: "Certlery",
-    icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" },
+    icons: {
+      icon: [{ url: "/certlery-logo.png", type: "image/png" }],
+      shortcut: "/certlery-logo.png",
+      apple: "/certlery-logo.png",
+    },
     openGraph: {
       type: "website",
       title: "Certlery",

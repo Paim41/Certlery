@@ -97,8 +97,8 @@ export function LandingPage() {
           </nav>
           <div className="nav-actions">
             <Link href={adminHref} className="text-button">Admin</Link>
-            <Link href="/u/maya-chen" className="button button-primary button-small" data-ripple>
-              View gallery
+            <Link href="/gallery" className="button button-primary button-small" data-ripple>
+              Sample portfolio
             </Link>
           </div>
         </div>
@@ -122,12 +122,12 @@ export function LandingPage() {
             </p>
             <div className="hero-actions hero-reveal reveal-four">
               <Link
-                href="/u/maya-chen"
+                href="/gallery"
                 className="button button-primary button-glow"
                 data-ripple
                 data-magnetic
               >
-                Explore the gallery <ArrowRight size={17} />
+                View sample portfolio <ArrowRight size={17} />
               </Link>
               <a href="#contact" className="button button-secondary" data-ripple data-magnetic>
                 Send a live message
@@ -215,7 +215,7 @@ export function LandingPage() {
         </div>
         <div className="gallery-caption" data-reveal>
           <span><ImageIcon size={17} /> Portrait and landscape formats stay in proportion</span>
-          <Link href="/u/maya-chen">Open the live gallery <ArrowRight size={16} /></Link>
+          <Link href="/gallery">See the public portfolio layout <ArrowRight size={16} /></Link>
         </div>
       </section>
 
@@ -306,8 +306,8 @@ export function LandingPage() {
         <span className="cta-seal"><FileCheck2 size={30} /></span>
         <h2>Your work deserves more than a folder.</h2>
         <p>Give every course, award, and professional milestone a clear place in your story.</p>
-        <Link href="/u/maya-chen" className="button button-primary button-glow" data-ripple data-magnetic>
-          Explore Certlery <ArrowRight size={17} />
+        <Link href="/gallery" className="button button-primary button-glow" data-ripple data-magnetic>
+          View the sample portfolio <ArrowRight size={17} />
         </Link>
       </section>
 
