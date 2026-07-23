@@ -20,8 +20,10 @@ export type CertificateRecord = {
   downloadUrl?: string;
   fileName?: string;
   mimeType?: string;
+  fileSize?: number;
   allowDownload?: boolean;
   createdAt?: string;
+  updatedAt?: string;
 };
 
 export const demoCertificates: CertificateRecord[] = [

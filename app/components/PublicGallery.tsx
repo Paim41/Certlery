@@ -8,6 +8,7 @@ import {
   BriefcaseBusiness,
   CheckCircle2,
   Copy,
+  Download,
   ExternalLink,
   Globe2,
   Grid2X2,
@@ -20,13 +21,19 @@ import {
   X,
 } from "lucide-react";
 import { demoCertificates, type CertificateRecord } from "../lib/demo-certificates";
+import {
+  defaultGallerySettings,
+  type GallerySettings,
+} from "../lib/gallery-settings";
 import { Brand } from "./Brand";
 import { CertificateArtwork } from "./CertificateArtwork";
 
 export function PublicGallery({
   certificates = demoCertificates,
+  settings = defaultGallerySettings,
 }: {
   certificates?: CertificateRecord[];
+  settings?: GallerySettings;
 }) {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("All");
@@ -42,6 +49,7 @@ export function PublicGallery({
   const newestCertificate = [...publicCertificates].sort(
     (left, right) => Date.parse(right.issueDate) - Date.parse(left.issueDate),
   )[0];
+
   const visible = useMemo(
     () =>
       publicCertificates.filter(
@@ -59,6 +67,23 @@ export function PublicGallery({
     await navigator.clipboard?.writeText(window.location.href);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 2400);
+  }
+
+  async function shareCertificate(certificate: CertificateRecord) {
+    const url = certificate.fileUrl
+      ? `${window.location.origin}/api/certificates/${encodeURIComponent(certificate.id)}/file`
+      : window.location.href;
+    if (navigator.share) {
+      await navigator.share({ title: certificate.title, text: certificate.issuer, url }).catch(() => undefined);
+      return;
+    }
+    await navigator.clipboard?.writeText(url);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 2400);
+  }
+
+  function printCertificate(certificate: CertificateRecord) {
+    window.open(`/api/certificates/${certificate.id}/file`, "_blank", "noopener,noreferrer");
   }
 
   return (
@@ -84,10 +109,10 @@ export function PublicGallery({
           </div>
           <div className="profile-copy">
             <span className="profile-kicker"><ShieldCheck size={15} /> Example public portfolio</span>
-            <h1>Certlery Showcase</h1>
-            <p className="profile-headline">A sample credential portfolio</p>
-            <p className="profile-bio">This neutral example shows how a real public Certlery profile can organize professional certificates, academic awards, skills, and verification details.</p>
-            <div className="profile-meta"><span><Globe2 size={15} /> Public certificate gallery</span><span><LinkIcon size={15} /> {publicCertificates.length} published credentials</span></div>
+            <h1>{settings.title}</h1>
+            <p className="profile-headline">{settings.headline}</p>
+            <p className="profile-bio">{settings.bio}</p>
+            <div className="profile-meta"><span><Globe2 size={15} /> Public certificate gallery</span>{settings.showCertificateCount && <span><LinkIcon size={15} /> {publicCertificates.length} published credentials</span>}</div>
           </div>
           <div className="profile-actions"><Link href="/#contact" className="button button-primary"><Mail size={16} /> Contact Certlery</Link><button className="icon-button" onClick={copyProfile} aria-label="Copy profile link"><Copy size={18} /></button></div>
         </div>
@@ -107,7 +132,7 @@ export function PublicGallery({
           </div>
           <div className="public-featured-grid">
             {publicCertificates.filter((certificate) => certificate.featured).map((certificate, index) => (
-              <article key={certificate.id} data-tilt data-reveal style={{ "--stagger": index } as React.CSSProperties}>
+              <article className={`orientation-${certificate.orientation}`} key={certificate.id} data-tilt data-reveal style={{ "--stagger": index } as React.CSSProperties}>
                 <span className="card-shine" aria-hidden="true" />
                 <CertificateArtwork certificate={certificate} />
                 <div><span>{certificate.category}</span><h3>{certificate.title}</h3><p>{certificate.issuer}</p><div><span><ShieldCheck size={14} /> {certificate.verification === "verified" ? "Link confirmed" : "Verification available"}</span><button onClick={() => setPreview(certificate)}>Quick preview <ExternalLink size={14} /></button></div></div>
@@ -124,7 +149,7 @@ export function PublicGallery({
           </div>
           <div className={`public-certificate-grid ${layout === "list" ? "is-list" : ""}`}>
             {visible.map((certificate, index) => (
-              <article key={certificate.id} data-tilt data-reveal style={{ "--stagger": index } as React.CSSProperties}>
+              <article className={`orientation-${certificate.orientation}`} key={certificate.id} data-tilt data-reveal style={{ "--stagger": index } as React.CSSProperties}>
                 <span className="card-shine" aria-hidden="true" />
                 <CertificateArtwork certificate={certificate} compact={layout === "list"} />
                 <div><span className="public-card-category">{certificate.category}</span><h3>{certificate.title}</h3><p>{certificate.issuer}</p><div className="skill-list">{certificate.skills.slice(0, 3).map((skill) => <span key={skill}>{skill}</span>)}</div><div className="public-card-foot"><span><ShieldCheck size={14} /> {certificate.verification === "verified" ? "Link confirmed" : "Verification link"}</span><button onClick={() => setPreview(certificate)} aria-label={`Preview ${certificate.title}`}><ExternalLink size={15} /></button></div></div>
@@ -156,7 +181,13 @@ export function PublicGallery({
                 <div><dt>Visibility</dt><dd>{preview.visibility}</dd></div>
                 <div><dt>Status</dt><dd>{preview.verification === "verified" ? "Link confirmed" : "Verification link"}</dd></div>
               </dl>
-              <button className="button button-primary" onClick={() => setPreview(null)} data-ripple>Close preview</button>
+              <div className="quick-preview-actions">
+                <button className="button button-secondary" onClick={() => shareCertificate(preview)}><Share2 size={16} /> Share</button>
+                {preview.fileUrl && <button className="button button-secondary" onClick={() => printCertificate(preview)}>Print</button>}
+                {preview.fileUrl && preview.allowDownload !== false && (
+                  <a className="button button-primary" href={`/api/certificates/${preview.id}/file?download=1`} download={preview.fileName}><Download size={16} /> Download</a>
+                )}
+              </div>
             </div>
           </section>
         </div>

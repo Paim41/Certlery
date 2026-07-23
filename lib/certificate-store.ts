@@ -6,6 +6,16 @@ import type { CertificateRecord } from "../app/lib/demo-certificates";
 const RECORD_PREFIX = "certlery/records/";
 const FILE_PREFIX = "certlery/files/";
 
+type RecordEntry = {
+  certificate: CertificateRecord;
+  blob: ListBlobResultBlob;
+};
+
+type CertificatePatch = Pick<
+  CertificateRecord,
+  "visibility" | "featured" | "allowDownload"
+>;
+
 export function isCertificateStorageConfigured() {
   return Boolean(process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_STORE_ID);
 }
@@ -13,21 +23,27 @@ export function isCertificateStorageConfigured() {
 export async function listCertificates(): Promise<CertificateRecord[]> {
   assertConfigured();
 
-  const recordBlobs = await listAll(RECORD_PREFIX);
-  const certificates = await Promise.all(
-    recordBlobs.map(async (blob) => {
-      try {
-        const response = await fetch(blob.url, { cache: "no-store" });
-        if (!response.ok) return null;
-        return normalizeRecord(await response.json());
-      } catch {
-        return null;
-      }
-    }),
-  );
+  const [entries, fileBlobs] = await Promise.all([
+    readRecordEntries(),
+    listAll(FILE_PREFIX),
+  ]);
+  const fileSizes = new Map(fileBlobs.map((blob) => [blob.url, blob.size]));
+  const latest = new Map<string, RecordEntry>();
 
-  return certificates
-    .filter((certificate): certificate is CertificateRecord => certificate !== null)
+  for (const entry of entries) {
+    const current = latest.get(entry.certificate.id);
+    if (!current || recordTime(entry) > recordTime(current)) {
+      latest.set(entry.certificate.id, entry);
+    }
+  }
+
+  return [...latest.values()]
+    .map(({ certificate }) => ({
+      ...certificate,
+      fileSize: certificate.fileSize ?? (
+        certificate.fileUrl ? fileSizes.get(certificate.fileUrl) : undefined
+      ),
+    }))
     .sort((left, right) => {
       const leftTime = Date.parse(left.createdAt ?? left.issueDate);
       const rightTime = Date.parse(right.createdAt ?? right.issueDate);
@@ -53,26 +69,20 @@ export async function saveCertificate(
     },
   );
 
+  const now = new Date().toISOString();
   const completed: CertificateRecord = {
     ...certificate,
     fileUrl: uploadedFile.url,
     downloadUrl: uploadedFile.downloadUrl,
     fileName: file.name,
     mimeType: file.type,
-    createdAt: new Date().toISOString(),
+    fileSize: file.size,
+    createdAt: now,
+    updatedAt: now,
   };
 
   try {
-    await put(
-      `${RECORD_PREFIX}${certificate.id}.json`,
-      JSON.stringify(completed),
-      {
-        access: "public",
-        addRandomSuffix: false,
-        contentType: "application/json",
-        cacheControlMaxAge: 60,
-      },
-    );
+    await writeRecord(completed);
   } catch (error) {
     await del(uploadedFile.url).catch(() => undefined);
     throw error;
@@ -81,27 +91,78 @@ export async function saveCertificate(
   return completed;
 }
 
+export async function updateCertificate(
+  id: string,
+  patch: Partial<CertificatePatch>,
+): Promise<CertificateRecord | null> {
+  assertConfigured();
+
+  const entries = await readRecordEntries();
+  const matches = entries.filter((entry) => entry.certificate.id === id);
+  if (!matches.length) return null;
+
+  const current = matches.reduce((latest, entry) => (
+    recordTime(entry) > recordTime(latest) ? entry : latest
+  ));
+  const updated: CertificateRecord = {
+    ...current.certificate,
+    ...patch,
+    id,
+    updatedAt: new Date().toISOString(),
+  };
+
+  const newRecord = await writeRecord(updated);
+  await del(matches.map((entry) => entry.blob.url)).catch(async (error) => {
+    await del(newRecord.url).catch(() => undefined);
+    throw error;
+  });
+  return updated;
+}
+
 export async function deleteCertificate(id: string) {
   assertConfigured();
 
-  const recordBlobs = await listAll(`${RECORD_PREFIX}${id}.json`);
-  const recordBlob = recordBlobs.find(
-    (blob) => blob.pathname === `${RECORD_PREFIX}${id}.json`,
-  );
-  if (!recordBlob) return false;
+  const entries = await readRecordEntries();
+  const matches = entries.filter((entry) => entry.certificate.id === id);
+  if (!matches.length) return false;
 
-  let certificate: CertificateRecord | null = null;
-  try {
-    const response = await fetch(recordBlob.url, { cache: "no-store" });
-    if (response.ok) certificate = normalizeRecord(await response.json());
-  } catch {
-    certificate = null;
+  const targets = new Set(matches.map((entry) => entry.blob.url));
+  for (const { certificate } of matches) {
+    if (certificate.fileUrl) targets.add(certificate.fileUrl);
   }
-
-  const targets = [recordBlob.url];
-  if (certificate?.fileUrl) targets.push(certificate.fileUrl);
-  await del(targets);
+  await del([...targets]);
   return true;
+}
+
+async function writeRecord(certificate: CertificateRecord) {
+  const revision = `${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
+  return put(
+    `${RECORD_PREFIX}${certificate.id}/${revision}.json`,
+    JSON.stringify(certificate),
+    {
+      access: "public",
+      addRandomSuffix: false,
+      contentType: "application/json",
+      cacheControlMaxAge: 60,
+    },
+  );
+}
+
+async function readRecordEntries(): Promise<RecordEntry[]> {
+  const blobs = await listAll(RECORD_PREFIX);
+  const entries = await Promise.all(
+    blobs.map(async (blob): Promise<RecordEntry | null> => {
+      try {
+        const response = await fetch(blob.url, { cache: "no-store" });
+        if (!response.ok) return null;
+        const certificate = normalizeRecord(await response.json());
+        return certificate ? { certificate, blob } : null;
+      } catch {
+        return null;
+      }
+    }),
+  );
+  return entries.filter((entry): entry is RecordEntry => entry !== null);
 }
 
 async function listAll(prefix: string) {
@@ -115,6 +176,17 @@ async function listAll(prefix: string) {
   } while (cursor);
 
   return blobs;
+}
+
+function recordTime(entry: RecordEntry) {
+  const metadataTime = Date.parse(
+    entry.certificate.updatedAt ??
+      entry.certificate.createdAt ??
+      entry.certificate.issueDate,
+  );
+  return Number.isFinite(metadataTime)
+    ? metadataTime
+    : new Date(entry.blob.uploadedAt).getTime();
 }
 
 function normalizeRecord(value: unknown): CertificateRecord | null {

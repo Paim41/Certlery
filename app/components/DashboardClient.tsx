@@ -50,6 +50,10 @@ import {
   ZoomOut,
 } from "lucide-react";
 import type { CertificateRecord } from "../lib/demo-certificates";
+import {
+  defaultGallerySettings,
+  type GallerySettings,
+} from "../lib/gallery-settings";
 import { Brand } from "./Brand";
 import { CertificateArtwork } from "./CertificateArtwork";
 
@@ -61,6 +65,7 @@ type WorkspacePage =
   | "expiring"
   | "archived"
   | "public"
+  | "storage"
   | "import"
   | "settings";
 
@@ -109,6 +114,10 @@ export function DashboardClient({
   const [viewer, setViewer] = useState<CertificateRecord | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
+  const totalStorageBytes = certificates.reduce(
+    (total, certificate) => total + (certificate.fileSize ?? 0),
+    0,
+  );
 
   useEffect(() => {
     let active = true;
@@ -170,6 +179,82 @@ export function DashboardClient({
     );
   }
 
+  async function updateCertificate(
+    id: string,
+    patch: Partial<Pick<CertificateRecord, "visibility" | "featured" | "allowDownload">>,
+  ) {
+    const response = await fetch(`/api/certificates/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    const payload = (await response.json()) as {
+      certificate?: CertificateRecord;
+      error?: string;
+    };
+    if (!response.ok || !payload.certificate) {
+      throw new Error(payload.error ?? "The certificate could not be updated.");
+    }
+    setCertificates((current) =>
+      current.map((certificate) =>
+        certificate.id === id ? payload.certificate! : certificate,
+      ),
+    );
+    return payload.certificate;
+  }
+
+  async function removeCertificates(ids: string[]) {
+    if (!ids.length) return;
+    const confirmed = window.confirm(
+      `Delete ${ids.length === 1 ? "this certificate" : `${ids.length} certificates`}? This also removes the uploaded file.`,
+    );
+    if (!confirmed) return;
+
+    const results = await Promise.all(
+      ids.map(async (id) => {
+        const response = await fetch(`/api/certificates/${id}`, { method: "DELETE" });
+        return { id, ok: response.ok };
+      }),
+    );
+    const deletedIds = results.filter((result) => result.ok).map((result) => result.id);
+    setCertificates((current) =>
+      current.filter((certificate) => !deletedIds.includes(certificate.id)),
+    );
+    setSelected((current) => current.filter((id) => !deletedIds.includes(id)));
+    notify(
+      deletedIds.length === ids.length
+        ? `${deletedIds.length} certificate${deletedIds.length === 1 ? "" : "s"} deleted.`
+        : "Some certificates could not be deleted. Please try again.",
+    );
+  }
+
+  async function shareCertificate(certificate: CertificateRecord) {
+    if (certificate.visibility === "private") {
+      notify("Set this certificate to Public or Unlisted before sharing it.");
+      return;
+    }
+    const url = `${window.location.origin}/api/certificates/${encodeURIComponent(certificate.id)}/file`;
+    if (navigator.share) {
+      await navigator.share({
+        title: certificate.title,
+        text: certificate.issuer,
+        url,
+      }).catch(() => undefined);
+      return;
+    }
+    await navigator.clipboard?.writeText(url);
+    notify("Certificate share link copied.");
+  }
+
+  function downloadCertificate(certificate: CertificateRecord) {
+    const anchor = document.createElement("a");
+    anchor.href = `/api/certificates/${certificate.id}/file?download=1`;
+    anchor.download = certificate.fileName ?? certificate.title;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  }
+
   return (
     <div className={`workspace ${dark ? "theme-dark" : ""}`}>
       <aside className={`sidebar ${sidebarOpen ? "is-open" : ""}`}>
@@ -191,9 +276,9 @@ export function DashboardClient({
           ))}
         </nav>
         <div className="storage-card">
-          <div><span>Storage</span><strong>324 MB of 2 GB</strong></div>
-          <div className="storage-track"><i /></div>
-          <button>Manage storage</button>
+          <div><span>Storage</span><strong>{formatBytes(totalStorageBytes)} used</strong></div>
+          <div className="storage-track"><i style={{ width: `${Math.min(100, Math.max(2, totalStorageBytes / (1024 * 1024 * 1024) * 100))}%` }} /></div>
+          <button onClick={() => navigate("storage")}>Manage storage</button>
         </div>
         <div className="sidebar-profile">
           <span className="avatar">MC</span>
@@ -247,11 +332,28 @@ export function DashboardClient({
               onView={setViewer}
               onAdd={() => setUploadOpen(true)}
               onNotify={notify}
+              onShare={shareCertificate}
+              onDownload={downloadCertificate}
+              onDelete={removeCertificates}
             />
           )}
           {page === "collections" && <Collections certificates={certificates} onNotify={notify} />}
           {page === "expiring" && <Expiring certificates={certificates} onView={setViewer} />}
-          {page === "public" && <PublicSettings onNotify={notify} />}
+          {page === "public" && (
+            <PublicSettings
+              certificates={certificates}
+              onNotify={notify}
+              onUpdate={updateCertificate}
+            />
+          )}
+          {page === "storage" && (
+            <StorageManager
+              certificates={certificates}
+              totalBytes={totalStorageBytes}
+              onDelete={removeCertificates}
+              onDownload={downloadCertificate}
+            />
+          )}
           {page === "import" && <ImportExport onNotify={notify} />}
           {page === "settings" && <SettingsPanel dark={dark} setDark={setDark} onNotify={notify} />}
         </main>
@@ -280,7 +382,15 @@ export function DashboardClient({
           }}
         />
       )}
-      {viewer && <Viewer certificate={viewer} onClose={() => setViewer(null)} onNotify={notify} />}
+      {viewer && (
+        <Viewer
+          certificate={viewer}
+          onClose={() => setViewer(null)}
+          onNotify={notify}
+          onShare={shareCertificate}
+          onDownload={downloadCertificate}
+        />
+      )}
       {toast && <div className="toast" role="status"><CheckCircle2 size={18} /> {toast}</div>}
     </div>
   );
@@ -357,6 +467,9 @@ function CertificateLibrary({
   onView,
   onAdd,
   onNotify,
+  onShare,
+  onDownload,
+  onDelete,
 }: {
   certificates: CertificateRecord[];
   query: string;
@@ -370,7 +483,12 @@ function CertificateLibrary({
   onView(certificate: CertificateRecord): void;
   onAdd(): void;
   onNotify(message: string): void;
+  onShare(certificate: CertificateRecord): Promise<void>;
+  onDownload(certificate: CertificateRecord): void;
+  onDelete(ids: string[]): Promise<void>;
 }) {
+  const [actionMenu, setActionMenu] = useState<string | null>(null);
+
   return (
     <>
       <div className="workspace-title library-title">
@@ -396,11 +514,11 @@ function CertificateLibrary({
         </div>
       </div>
       {filter !== "all" && <div className="filter-chips"><span>{filter}<button onClick={() => setFilter("all")} aria-label={`Remove ${filter} filter`}><X size={13} /></button></span><button onClick={() => setFilter("all")}>Clear all</button></div>}
-      {selected.length > 0 && <div className="bulk-bar"><span>{selected.length} selected</span><button onClick={() => onNotify("Selected certificates added to a collection.")}><FolderKanban size={16} /> Add to collection</button><button onClick={() => onNotify("Selected certificates archived. Undo is available for 30 seconds.")}><Archive size={16} /> Archive</button><button className="danger"><Trash2 size={16} /> Delete</button></div>}
+      {selected.length > 0 && <div className="bulk-bar"><span>{selected.length} selected</span><button onClick={() => onNotify("Selected certificates added to a collection.")}><FolderKanban size={16} /> Add to collection</button><button onClick={() => onNotify("Selected certificates archived. Undo is available for 30 seconds.")}><Archive size={16} /> Archive</button><button className="danger" onClick={() => void onDelete(selected)}><Trash2 size={16} /> Delete</button></div>}
       {certificates.length ? (
         <div className={`certificate-grid view-${view}`}>
           {certificates.map((certificate) => (
-            <article className="certificate-card" key={certificate.id}>
+            <article className={`certificate-card orientation-${certificate.orientation} ${actionMenu === certificate.id ? "menu-open" : ""}`} key={certificate.id}>
               <div className="card-preview">
                 <label className="select-check" aria-label={`Select ${certificate.title}`}>
                   <input type="checkbox" checked={selected.includes(certificate.id)} onChange={() => toggleSelected(certificate.id)} />
@@ -414,7 +532,17 @@ function CertificateLibrary({
               <div className="card-body">
                 <div className="card-title-row">
                   <div><h3>{certificate.title}</h3><p>{certificate.issuer}</p></div>
-                  <button className="icon-button subtle" aria-label={`Actions for ${certificate.title}`}><MoreHorizontal size={18} /></button>
+                  <div className="card-action-wrap">
+                    <button className="icon-button subtle" onClick={() => setActionMenu((current) => current === certificate.id ? null : certificate.id)} aria-expanded={actionMenu === certificate.id} aria-label={`Actions for ${certificate.title}`}><MoreHorizontal size={18} /></button>
+                    {actionMenu === certificate.id && (
+                      <div className="card-action-menu">
+                        <button onClick={() => { onView(certificate); setActionMenu(null); }}><Eye size={15} /> View certificate</button>
+                        <button onClick={() => { void onShare(certificate); setActionMenu(null); }}><Share2 size={15} /> Share link</button>
+                        <button onClick={() => { onDownload(certificate); setActionMenu(null); }}><Download size={15} /> Download original</button>
+                        <button className="danger" onClick={() => { void onDelete([certificate.id]); setActionMenu(null); }}><Trash2 size={15} /> Delete</button>
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <div className="card-meta">
                   <span>{new Date(certificate.issueDate).toLocaleDateString("en", { month: "short", year: "numeric" })}</span>
@@ -429,8 +557,8 @@ function CertificateLibrary({
                 </div>
                 <div className="list-only list-actions">
                   <button onClick={() => onView(certificate)}><Eye size={16} /> View</button>
-                  <button onClick={() => onNotify("Share link copied.")}><Share2 size={16} /> Share</button>
-                  <button><Download size={16} /> Download</button>
+                  <button onClick={() => void onShare(certificate)}><Share2 size={16} /> Share</button>
+                  <button onClick={() => onDownload(certificate)}><Download size={16} /> Download</button>
                 </div>
               </div>
             </article>
@@ -486,14 +614,150 @@ function Expiring({ certificates, onView }: { certificates: CertificateRecord[];
   );
 }
 
-function PublicSettings({ onNotify }: { onNotify(message: string): void }) {
+function PublicSettings({
+  certificates,
+  onNotify,
+  onUpdate,
+}: {
+  certificates: CertificateRecord[];
+  onNotify(message: string): void;
+  onUpdate(
+    id: string,
+    patch: Partial<Pick<CertificateRecord, "visibility" | "featured" | "allowDownload">>,
+  ): Promise<CertificateRecord>;
+}) {
+  const [settings, setSettings] = useState<GallerySettings>(defaultGallerySettings);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/gallery-settings")
+      .then(async (response) => {
+        const payload = (await response.json()) as {
+          settings?: GallerySettings;
+          error?: string;
+        };
+        if (!response.ok || !payload.settings) throw new Error(payload.error);
+        if (active) setSettings(payload.settings);
+      })
+      .catch(() => {
+        if (active) onNotify("Gallery profile settings could not be loaded.");
+      });
+    return () => {
+      active = false;
+    };
+  }, [onNotify]);
+
+  async function saveProfile() {
+    setSavingProfile(true);
+    try {
+      const response = await fetch("/api/gallery-settings", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(settings),
+      });
+      const payload = (await response.json()) as {
+        settings?: GallerySettings;
+        error?: string;
+      };
+      if (!response.ok || !payload.settings) {
+        throw new Error(payload.error ?? "The gallery profile could not be saved.");
+      }
+      setSettings(payload.settings);
+      onNotify("Public gallery profile saved.");
+    } catch (error) {
+      onNotify(error instanceof Error ? error.message : "The gallery profile could not be saved.");
+    } finally {
+      setSavingProfile(false);
+    }
+  }
+
+  async function changeCertificate(
+    certificate: CertificateRecord,
+    patch: Partial<Pick<CertificateRecord, "visibility" | "featured" | "allowDownload">>,
+  ) {
+    setUpdatingId(certificate.id);
+    try {
+      await onUpdate(certificate.id, patch);
+      onNotify("Public gallery updated.");
+    } catch (error) {
+      onNotify(error instanceof Error ? error.message : "The gallery could not be updated.");
+    } finally {
+      setUpdatingId(null);
+    }
+  }
+
   return (
     <>
       <div className="workspace-title"><div><span className="eyebrow">Public gallery</span><h1>Shape your public profile.</h1><p>Choose what people see when you share your Certlery link.</p></div><Link href="/gallery" className="button button-secondary"><Eye size={17} /> Preview gallery</Link></div>
       <div className="settings-layout">
-        <section className="panel settings-card"><h2>Profile details</h2><p>Introduce your work before visitors reach the certificates.</p><div className="form-grid"><label>Gallery title<input defaultValue="Certlery Showcase" /></label><label>Professional headline<input defaultValue="A sample credential portfolio" /></label><label className="full-field">Biography<textarea defaultValue="A public portfolio for professional certificates, academic awards, skills, and verification details." /></label><label>Public username<div className="input-prefix"><span>certlery.app/</span><input defaultValue="gallery" /></div></label><label>Default layout<select defaultValue="standard"><option value="standard">Standard grid</option><option value="compact">Compact gallery</option><option value="editorial">Editorial list</option></select></label></div></section>
-        <aside className="panel settings-card"><h2>Profile visibility</h2><p>Control discovery and downloads.</p><Toggle label="Public profile" copy="Anyone with the link can view your gallery." checked /><Toggle label="Search engine indexing" copy="Allow your profile to appear in search results." checked /><Toggle label="Show certificate count" copy="Display the total on your profile." checked /><Toggle label="Allow downloads" copy="Use each certificate’s download preference." /><button className="button button-primary full-button" onClick={() => onNotify("Public gallery settings saved.")}>Save public settings</button></aside>
+        <section className="panel settings-card">
+          <h2>Profile details</h2>
+          <p>These details appear at the top of the public gallery.</p>
+          <div className="form-grid">
+            <label>Gallery title<input value={settings.title} onChange={(event) => setSettings((current) => ({ ...current, title: event.target.value }))} /></label>
+            <label>Professional headline<input value={settings.headline} onChange={(event) => setSettings((current) => ({ ...current, headline: event.target.value }))} /></label>
+            <label className="full-field">Biography<textarea value={settings.bio} onChange={(event) => setSettings((current) => ({ ...current, bio: event.target.value }))} /></label>
+          </div>
+          <ToggleInputSimple label="Show certificate count" copy="Display the published total on your profile." checked={settings.showCertificateCount} onChange={(checked) => setSettings((current) => ({ ...current, showCertificateCount: checked }))} />
+          <button className="button button-primary full-button" disabled={savingProfile} onClick={saveProfile}>{savingProfile ? "Saving..." : "Save profile"}</button>
+        </section>
+        <aside className="panel settings-card gallery-summary-card">
+          <h2>Publishing summary</h2>
+          <p>Visibility changes are saved immediately.</p>
+          <div className="gallery-summary-stats">
+            <span><strong>{certificates.filter((certificate) => certificate.visibility === "public").length}</strong>Public</span>
+            <span><strong>{certificates.filter((certificate) => certificate.visibility === "unlisted").length}</strong>Unlisted</span>
+            <span><strong>{certificates.filter((certificate) => certificate.featured).length}</strong>Featured</span>
+          </div>
+          <Link href="/gallery" className="button button-secondary full-button"><Eye size={16} /> Open public gallery</Link>
+        </aside>
       </div>
+      <section className="panel gallery-manager">
+        <div className="panel-head"><div><h2>Manage published certificates</h2><p>Control visibility, featured placement, and downloads for every certificate.</p></div></div>
+        <div className="gallery-manager-list">
+          {certificates.length ? certificates.map((certificate) => (
+            <article key={certificate.id}>
+              <span className="gallery-manager-thumb"><CertificateArtwork certificate={certificate} compact /></span>
+              <div><strong>{certificate.title}</strong><small>{certificate.issuer} · {certificate.fileName ?? "Certificate file"}</small></div>
+              <label>Visibility<select value={certificate.visibility} disabled={updatingId === certificate.id} onChange={(event) => void changeCertificate(certificate, { visibility: event.target.value as CertificateRecord["visibility"] })}><option value="public">Public</option><option value="unlisted">Unlisted</option><option value="private">Private</option></select></label>
+              <label className="manager-check"><input type="checkbox" checked={certificate.featured} disabled={updatingId === certificate.id} onChange={(event) => void changeCertificate(certificate, { featured: event.target.checked })} /> Featured</label>
+              <label className="manager-check"><input type="checkbox" checked={certificate.allowDownload !== false} disabled={updatingId === certificate.id} onChange={(event) => void changeCertificate(certificate, { allowDownload: event.target.checked })} /> Downloads</label>
+            </article>
+          )) : <div className="empty-state compact-empty"><FileCheck2 size={24} /><p>Add a certificate to begin managing the public gallery.</p></div>}
+        </div>
+      </section>
+    </>
+  );
+}
+
+function StorageManager({
+  certificates,
+  totalBytes,
+  onDelete,
+  onDownload,
+}: {
+  certificates: CertificateRecord[];
+  totalBytes: number;
+  onDelete(ids: string[]): Promise<void>;
+  onDownload(certificate: CertificateRecord): void;
+}) {
+  return (
+    <>
+      <div className="workspace-title"><div><span className="eyebrow">Storage</span><h1>Manage certificate files.</h1><p>Review file sizes, download originals, or permanently remove uploads.</p></div><strong className="storage-total">{formatBytes(totalBytes)} used</strong></div>
+      <section className="panel storage-manager">
+        <div className="storage-manager-head"><span>Certificate</span><span>File</span><span>Size</span><span>Visibility</span><span /></div>
+        {certificates.length ? certificates.map((certificate) => (
+          <article key={certificate.id}>
+            <div><span className="storage-thumb"><CertificateArtwork certificate={certificate} compact /></span><span><strong>{certificate.title}</strong><small>{certificate.issuer}</small></span></div>
+            <span title={certificate.fileName}>{certificate.fileName ?? "Certificate file"}</span>
+            <span>{certificate.fileSize ? formatBytes(certificate.fileSize) : "Unknown"}</span>
+            <VisibilityBadge visibility={certificate.visibility} />
+            <div><button onClick={() => onDownload(certificate)}><Download size={15} /> Download</button><button className="danger" onClick={() => void onDelete([certificate.id])}><Trash2 size={15} /> Delete</button></div>
+          </article>
+        )) : <div className="empty-state"><FileArchive size={27} /><h2>No stored certificate files.</h2><p>Uploaded files will appear here.</p></div>}
+      </section>
     </>
   );
 }
@@ -531,8 +795,9 @@ function UploadDialog({ onClose, onSaved }: { onClose(): void; onSaved(certifica
   const [file, setFile] = useState<File | null>(null);
   const [step, setStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
+  const [processingFile, setProcessingFile] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const { register, handleSubmit, control, trigger, formState: { errors } } = useForm<UploadValues>({
+  const { register, handleSubmit, control, trigger, setValue, formState: { errors } } = useForm<UploadValues>({
     resolver: zodResolver(uploadSchema),
     defaultValues: { issueDate: new Date().toISOString().slice(0, 10), orientation: "landscape", visibility: "private", featured: false, allowDownload: true, category: "Professional", verificationUrl: "" },
   });
@@ -548,7 +813,7 @@ function UploadDialog({ onClose, onSaved }: { onClose(): void; onSaved(certifica
     };
   }, [previewUrl]);
 
-  function chooseFile(candidate: File | null) {
+  async function chooseFile(candidate: File | null) {
     setSubmitError(null);
     if (!candidate) {
       setFile(null);
@@ -564,11 +829,38 @@ function UploadDialog({ onClose, onSaved }: { onClose(): void; onSaved(certifica
       setSubmitError("Use a PDF, PNG, JPG, JPEG, or WebP certificate.");
       return;
     }
-    setFile(candidate);
+    setProcessingFile(true);
+    try {
+      let dimensions: { width: number; height: number };
+      if (candidate.type === "application/pdf") {
+        const pdfjs = await import("pdfjs-dist/webpack.mjs");
+        const loadingTask = pdfjs.getDocument({ data: await candidate.arrayBuffer() });
+        const document = await loadingTask.promise;
+        const page = await document.getPage(1);
+        const viewport = page.getViewport({ scale: 1 });
+        dimensions = { width: viewport.width, height: viewport.height };
+        await loadingTask.destroy();
+      } else {
+        dimensions = await readImageDimensions(candidate);
+      }
+      setValue("orientation", inferOrientation(dimensions.width, dimensions.height), {
+        shouldValidate: true,
+      });
+      setFile(candidate);
+    } catch {
+      setFile(null);
+      setSubmitError("This file could not be previewed. Try another PDF or image.");
+    } finally {
+      setProcessingFile(false);
+    }
   }
 
   async function continueToNextStep() {
     setSubmitError(null);
+    if (processingFile) {
+      setSubmitError("Wait for the certificate preview to finish.");
+      return;
+    }
     if (step === 1 && !file) {
       setSubmitError("Choose the certificate file before continuing.");
       return;
@@ -620,10 +912,10 @@ function UploadDialog({ onClose, onSaved }: { onClose(): void; onSaved(certifica
             {step === 1 && (
               <>
                 <label className="dropzone">
-                  <input type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" onChange={(event) => chooseFile(event.target.files?.[0] ?? null)} />
+                  <input type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" onChange={(event) => void chooseFile(event.target.files?.[0] ?? null)} />
                   <span className="dropzone-icon"><UploadCloud size={27} /></span>
-                  <strong>{file ? file.name : "Drop your certificate here"}</strong>
-                  <p>{file ? `${(file.size / 1024 / 1024).toFixed(2)} MB · Ready to upload` : "or browse files from your device"}</p>
+                  <strong>{processingFile ? "Preparing your exact preview..." : file ? file.name : "Drop your certificate here"}</strong>
+                  <p>{file ? `${(file.size / 1024 / 1024).toFixed(2)} MB · ${values.orientation} detected` : "or browse files from your device"}</p>
                   <small>PDF, PNG, JPG, JPEG, or WebP · Maximum 10 MB</small>
                   <span className="button button-secondary">{file ? "Replace file" : "Browse files"}</span>
                 </label>
@@ -658,25 +950,47 @@ function UploadDialog({ onClose, onSaved }: { onClose(): void; onSaved(certifica
             )}
           </div>
           {submitError && <div className="upload-error" role="alert"><CircleAlert size={16} /> {submitError}</div>}
-          <footer><button type="button" className="text-button" onClick={onClose}>Cancel</button><div>{step > 1 && <button type="button" className="button button-secondary" onClick={() => { setSubmitError(null); setStep((current) => current - 1); }}>Back</button>}{step < 4 ? <button type="button" className="button button-primary" onClick={continueToNextStep}>Continue</button> : <button type="submit" className="button button-primary" disabled={submitting}>{submitting ? "Publishing..." : values.visibility === "public" ? "Publish certificate" : "Save certificate"}</button>}</div></footer>
+          <footer><button type="button" className="text-button" onClick={onClose}>Cancel</button><div>{step > 1 && <button type="button" className="button button-secondary" onClick={() => { setSubmitError(null); setStep((current) => current - 1); }}>Back</button>}{step < 4 ? <button type="button" className="button button-primary" disabled={processingFile} onClick={continueToNextStep}>Continue</button> : <button type="submit" className="button button-primary" disabled={submitting || processingFile}>{submitting ? "Publishing..." : values.visibility === "public" ? "Publish certificate" : "Save certificate"}</button>}</div></footer>
         </form>
       </div>
     </div>
   );
 }
 
-function Viewer({ certificate, onClose, onNotify }: { certificate: CertificateRecord; onClose(): void; onNotify(message: string): void }) {
+function Viewer({
+  certificate,
+  onClose,
+  onNotify,
+  onShare,
+  onDownload,
+}: {
+  certificate: CertificateRecord;
+  onClose(): void;
+  onNotify(message: string): void;
+  onShare(certificate: CertificateRecord): Promise<void>;
+  onDownload(certificate: CertificateRecord): void;
+}) {
   const [zoom, setZoom] = useState(1);
   const [rotation, setRotation] = useState(0);
+
+  function printCertificate() {
+    const popup = window.open(
+      `/api/certificates/${certificate.id}/file`,
+      "_blank",
+    );
+    if (popup) popup.opener = null;
+    else onNotify("Allow pop-ups to open the printable certificate.");
+  }
+
   return (
     <div className="viewer" role="dialog" aria-modal="true" aria-label={`Viewing ${certificate.title}`}>
-      <header><button className="icon-button viewer-close" onClick={onClose} aria-label="Close viewer"><X size={20} /></button><div><strong>{certificate.title}</strong><small>{certificate.issuer}</small></div><div className="viewer-actions"><button onClick={() => onNotify("Share link copied.")}><Share2 size={17} /><span>Share</span></button><button><Download size={17} /><span>Download</span></button><button onClick={() => window.print()}><Printer size={17} /><span>Print</span></button></div></header>
+      <header><button className="icon-button viewer-close" onClick={onClose} aria-label="Close viewer"><X size={20} /></button><div><strong>{certificate.title}</strong><small>{certificate.issuer}</small></div><div className="viewer-actions"><button onClick={() => void onShare(certificate)}><Share2 size={17} /><span>Share</span></button><button onClick={() => onDownload(certificate)}><Download size={17} /><span>Download</span></button><button onClick={printCertificate}><Printer size={17} /><span>Print</span></button></div></header>
       <div className="viewer-body">
         <div className="viewer-stage">
           <div className="viewer-document" style={{ transform: `scale(${zoom}) rotate(${rotation}deg)` }}><CertificateArtwork certificate={certificate} /></div>
           <div className="viewer-controls"><button onClick={() => setZoom((value) => Math.max(.6, value - .1))} aria-label="Zoom out"><ZoomOut size={17} /></button><span>{Math.round(zoom * 100)}%</span><button onClick={() => setZoom((value) => Math.min(1.6, value + .1))} aria-label="Zoom in"><ZoomIn size={17} /></button><i /><button onClick={() => setRotation((value) => value - 90)} aria-label="Rotate left"><RotateCcw size={17} /></button><button onClick={() => { setZoom(1); setRotation(0); }} aria-label="Fit to screen"><Maximize2 size={17} /></button></div>
         </div>
-        <aside className="viewer-info"><span className="eyebrow">Certificate details</span><h2>{certificate.title}</h2><p className="viewer-issuer">{certificate.issuer}</p><div className="viewer-badges"><StatusBadge certificate={certificate} /><VisibilityBadge visibility={certificate.visibility} /></div><dl><div><dt>Issue date</dt><dd>{new Date(certificate.issueDate).toLocaleDateString("en", { day: "numeric", month: "long", year: "numeric" })}</dd></div>{certificate.expirationDate && <div><dt>Expiration date</dt><dd>{new Date(certificate.expirationDate).toLocaleDateString("en", { day: "numeric", month: "long", year: "numeric" })}</dd></div>}<div><dt>Credential ID</dt><dd>{certificate.credentialId ?? "Not provided"}</dd></div><div><dt>Category</dt><dd>{certificate.category}</dd></div><div><dt>Collection</dt><dd>{certificate.collection ?? "None"}</dd></div></dl><div className="skill-list">{certificate.skills.map((skill) => <span key={skill}>{skill}</span>)}</div><p className="viewer-description">{certificate.description}</p>{certificate.verification !== "unavailable" && <button className="button button-secondary full-button"><Link2 size={16} /> Open verification link</button>}<p className="verification-note"><ShieldCheck size={15} /> Verification link provided by the certificate owner.</p></aside>
+        <aside className="viewer-info"><span className="eyebrow">Certificate details</span><h2>{certificate.title}</h2><p className="viewer-issuer">{certificate.issuer}</p><div className="viewer-badges"><StatusBadge certificate={certificate} /><VisibilityBadge visibility={certificate.visibility} /></div><dl><div><dt>Issue date</dt><dd>{new Date(certificate.issueDate).toLocaleDateString("en", { day: "numeric", month: "long", year: "numeric" })}</dd></div>{certificate.expirationDate && <div><dt>Expiration date</dt><dd>{new Date(certificate.expirationDate).toLocaleDateString("en", { day: "numeric", month: "long", year: "numeric" })}</dd></div>}<div><dt>Credential ID</dt><dd>{certificate.credentialId ?? "Not provided"}</dd></div><div><dt>Category</dt><dd>{certificate.category}</dd></div><div><dt>Collection</dt><dd>{certificate.collection ?? "None"}</dd></div><div><dt>Original file</dt><dd>{certificate.fileName ?? "Certificate file"}</dd></div></dl><div className="skill-list">{certificate.skills.map((skill) => <span key={skill}>{skill}</span>)}</div><p className="viewer-description">{certificate.description}</p>{certificate.verificationUrl && <a href={certificate.verificationUrl} target="_blank" rel="noreferrer" className="button button-secondary full-button"><Link2 size={16} /> Open verification link</a>}<p className="verification-note"><ShieldCheck size={15} /> Verification link provided by the certificate owner.</p></aside>
       </div>
     </div>
   );
@@ -699,4 +1013,52 @@ function Toggle({ label, copy, checked = false }: { label: string; copy: string;
 
 function ToggleInput({ register, name, label, copy }: { register: ReturnType<typeof useForm<UploadValues>>["register"]; name: "featured" | "allowDownload"; label: string; copy: string }) {
   return <label className="toggle-row"><span><strong>{label}</strong><small>{copy}</small></span><input type="checkbox" {...register(name)} /><i /></label>;
+}
+
+function ToggleInputSimple({
+  label,
+  copy,
+  checked,
+  onChange,
+}: {
+  label: string;
+  copy: string;
+  checked: boolean;
+  onChange(checked: boolean): void;
+}) {
+  return <label className="toggle-row"><span><strong>{label}</strong><small>{copy}</small></span><input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} /><i /></label>;
+}
+
+function formatBytes(bytes: number) {
+  if (!bytes) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  const unit = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  const value = bytes / 1024 ** unit;
+  return `${value >= 10 || unit === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[unit]}`;
+}
+
+function inferOrientation(
+  width: number,
+  height: number,
+): CertificateRecord["orientation"] {
+  const ratio = width / height;
+  if (ratio > 1.08) return "landscape";
+  if (ratio < 0.92) return "portrait";
+  return "square";
+}
+
+function readImageDimensions(file: File) {
+  return new Promise<{ width: number; height: number }>((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      resolve({ width: image.naturalWidth, height: image.naturalHeight });
+      URL.revokeObjectURL(url);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Image could not be loaded."));
+    };
+    image.src = url;
+  });
 }

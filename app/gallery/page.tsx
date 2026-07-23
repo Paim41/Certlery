@@ -5,6 +5,7 @@ import {
   isCertificateStorageConfigured,
   listCertificates,
 } from "../../lib/certificate-store";
+import { getGallerySettings } from "../../lib/gallery-settings-store";
 
 export const metadata: Metadata = {
   title: "Certlery Showcase",
@@ -15,6 +16,7 @@ export const dynamic = "force-dynamic";
 
 export default async function GalleryPage() {
   let published: CertificateRecord[] = [];
+  const settings = await getGallerySettings();
   if (isCertificateStorageConfigured()) {
     try {
       published = (await listCertificates()).filter(
@@ -25,11 +27,7 @@ export default async function GalleryPage() {
     }
   }
 
-  const publishedIds = new Set(published.map((certificate) => certificate.id));
-  const certificates = [
-    ...published,
-    ...demoCertificates.filter((certificate) => !publishedIds.has(certificate.id)),
-  ];
+  const certificates = published.length ? published : demoCertificates;
 
-  return <PublicGallery certificates={certificates} />;
+  return <PublicGallery certificates={certificates} settings={settings} />;
 }

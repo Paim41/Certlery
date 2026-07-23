@@ -1,15 +1,17 @@
 import { getAdminSession } from "../../../../../lib/admin-auth";
-import { listCertificates } from "../../../../../lib/certificate-store";
+import {
+  isCertificateStorageConfigured,
+  listCertificates,
+} from "../../../../../lib/certificate-store";
 
 export const runtime = "nodejs";
 
 export async function GET(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
-  const session = await getAdminSession();
-  if (!session) {
-    return Response.json({ error: "Admin authentication required." }, { status: 401 });
+  if (!isCertificateStorageConfigured()) {
+    return Response.json({ error: "Certificate storage is not configured." }, { status: 503 });
   }
 
   const { id } = await context.params;
@@ -18,7 +20,38 @@ export async function GET(
     if (!certificate?.fileUrl) {
       return Response.json({ error: "Certificate file not found." }, { status: 404 });
     }
-    return Response.redirect(certificate.downloadUrl ?? certificate.fileUrl);
+
+    const session = await getAdminSession();
+    if (certificate.visibility === "private" && !session) {
+      return Response.json({ error: "Admin authentication required." }, { status: 401 });
+    }
+
+    const wantsDownload = new URL(request.url).searchParams.get("download") === "1";
+    if (wantsDownload && certificate.allowDownload === false && !session) {
+      return Response.json({ error: "Downloads are disabled for this certificate." }, { status: 403 });
+    }
+
+    const source = await fetch(certificate.fileUrl, { cache: "no-store" });
+    if (!source.ok || !source.body) {
+      return Response.json({ error: "Certificate file not found." }, { status: 404 });
+    }
+
+    const fileName = certificate.fileName || `certificate.${certificate.fileType === "pdf" ? "pdf" : "png"}`;
+    const asciiName = fileName.replace(/[^\x20-\x7E]/g, "_").replace(/["\\\r\n]/g, "_");
+    const disposition = wantsDownload ? "attachment" : "inline";
+    const encodedName = encodeURIComponent(fileName).replace(/'/g, "%27");
+    const headers = new Headers({
+      "content-type": certificate.mimeType || source.headers.get("content-type") || "application/octet-stream",
+      "content-disposition": `${disposition}; filename="${asciiName}"; filename*=UTF-8''${encodedName}`,
+      "cache-control": certificate.visibility === "private" ? "private, no-store" : "public, max-age=300",
+      "x-content-type-options": "nosniff",
+    });
+    const contentLength = source.headers.get("content-length") || certificate.fileSize?.toString();
+    if (contentLength) headers.set("content-length", contentLength);
+
+    return new Response(source.body, {
+      headers,
+    });
   } catch (error) {
     console.error("Certificate file lookup error", error);
     return Response.json({ error: "Certificate file not found." }, { status: 404 });
